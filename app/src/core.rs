@@ -79,6 +79,7 @@ impl Driver {
 }
 
 pub struct OpenVrPaths {
+    pub runtime: Option<PathBuf>,
     pub config: Option<PathBuf>,
     pub log: Option<PathBuf>,
     pub drivers: Vec<Driver>,
@@ -110,7 +111,7 @@ pub fn ler_openvrpaths(arquivo: &Path) -> OpenVrPaths {
         embutidos.sort_by(|a, b| a.nome.cmp(&b.nome));
         drivers.extend(embutidos);
     }
-    OpenVrPaths { config: primeiro(&v, "config"), log: primeiro(&v, "log"), drivers }
+    OpenVrPaths { runtime: primeiro(&v, "runtime"), config: primeiro(&v, "config"), log: primeiro(&v, "log"), drivers }
 }
 
 /// O SteamVR carrega <raiz>\bin\win64\driver_<name>.dll, com <name> do manifesto.
@@ -133,6 +134,14 @@ pub fn alvo_padrao(drivers: &[Driver]) -> Option<&Driver> {
         _ => 9,
     };
     drivers.iter().filter(|d| prioridade(d) < 9).min_by_key(|d| prioridade(d))
+}
+
+/// O driver escolhido no app (app.alvo) ou o padrão detectado.
+pub fn alvo(cfg: &Map<String, Value>, ovr: &OpenVrPaths) -> Option<Driver> {
+    match cfg.get("app.alvo").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        Some(p) => Some(driver_em(Path::new(p))),
+        None => alvo_padrao(&ovr.drivers).cloned(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +277,12 @@ pub fn log_mais_recente(candidatos: &[PathBuf]) -> Option<(PathBuf, f64)> {
         .filter_map(|p| Some((p.clone(), fs::metadata(p).ok()?.modified().ok()?)))
         .max_by_key(|(_, m)| *m)
         .map(|(p, m)| (p, m.elapsed().map(|d| d.as_secs_f64()).unwrap_or(0.0)))
+}
+
+/// O proxy escreve ao lado da DLL ou, sem permissão, em %TEMP% (ver src/proxy/log.cpp).
+pub fn log_do_alvo(d: &Driver) -> Option<(PathBuf, f64)> {
+    let pasta = d.dll.parent()?;
+    log_mais_recente(&[pasta.join("ghostframe.log"), std::env::temp_dir().join("ghostframe.log")])
 }
 
 /// Últimos `max` bytes do arquivo, sem a primeira linha (que pode vir cortada).

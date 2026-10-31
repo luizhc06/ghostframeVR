@@ -2,6 +2,7 @@
 //! para o overlay do SteamVR (IVROverlay::SetOverlayRaw, ~4x por segundo).
 use std::fmt::Write;
 
+#[derive(Clone, Default)]
 pub struct Metricas {
     pub fps_headset: Option<f32>,
     pub fps_jogo: Option<f32>,
@@ -18,6 +19,7 @@ pub struct Metricas {
     pub historico: Vec<f32>,
 }
 
+#[derive(Clone, Copy)]
 pub struct Itens {
     pub fps: bool,
     pub frames: bool,

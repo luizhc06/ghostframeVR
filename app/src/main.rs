@@ -49,12 +49,6 @@ mod win {
     fn config() -> Map<String, Value> {
         core::config(&fs::read_to_string(arquivo_ini()).unwrap_or_default())
     }
-    fn alvo(cfg: &Map<String, Value>, ovr: &core::OpenVrPaths) -> Option<Driver> {
-        match cfg.get("app.alvo").and_then(Value::as_str).filter(|s| !s.is_empty()) {
-            Some(p) => Some(core::driver_em(Path::new(p))),
-            None => core::alvo_padrao(&ovr.drivers).cloned(),
-        }
-    }
     fn vrsettings(ovr: &core::OpenVrPaths) -> Option<PathBuf> {
         ovr.config.as_ref().map(|c| c.join("steamvr.vrsettings"))
     }
@@ -66,11 +60,8 @@ mod win {
     fn estado(sys: tauri::State<Mutex<sysinfo::System>>) -> Value {
         let ovr = openvrpaths();
         let cfg = config();
-        let alvo = alvo(&cfg, &ovr);
-        let log = alvo.as_ref().and_then(|d| {
-            let pasta = d.dll.parent()?.to_path_buf();
-            core::log_mais_recente(&[pasta.join("ghostframe.log"), std::env::temp_dir().join("ghostframe.log")])
-        });
+        let alvo = core::alvo(&cfg, &ovr);
+        let log = alvo.as_ref().and_then(core::log_do_alvo);
         let log = log.map(|(p, idade)| {
             let dados = core::ler_fim(&p, 512 * 1024).map(|t| core::ler_log(&t)).unwrap_or(Value::Null);
             json!({ "caminho": p, "idade": idade, "dados": dados })
@@ -130,7 +121,7 @@ mod win {
     }
 
     fn operar(op: &str) -> Result<String, String> {
-        let d = alvo(&config(), &openvrpaths()).ok_or("nenhum driver alvo encontrado")?;
+        let d = core::alvo(&config(), &openvrpaths()).ok_or("nenhum driver alvo encontrado")?;
         if steamvr_aberto() {
             return Err("feche o SteamVR antes: a DLL do driver fica travada enquanto ele roda".into());
         }
@@ -183,7 +174,7 @@ mod win {
         if let Some(l) = &ovr.log {
             copiar(l.join("vrserver.txt"));
         }
-        if let Some(d) = alvo(&config(), &ovr) {
+        if let Some(d) = core::alvo(&config(), &ovr) {
             copiar(d.dll.with_file_name("ghostframe.log"));
             copiar(d.raiz.join("driver.vrdrivermanifest"));
         }
