@@ -207,7 +207,6 @@ canvas { width: 100%; height: 170px; display: block; }
 /* switches */
 .linha-sw { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .linha-sw + .linha-sw { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(0, 240, 255, .1); }
-.linha-sw h2 { margin-bottom: 4px; }
 .sw { position: relative; flex: none; width: 50px; height: 26px; cursor: pointer; }
 .sw input { position: absolute; opacity: 0; }
 .sw span {
@@ -267,13 +266,17 @@ canvas { width: 100%; height: 170px; display: block; }
 .btn:disabled { opacity: .35; cursor: not-allowed; filter: none; }
 .btn.ocupado { animation: pulsa .8s infinite; }
 
-input.num, .manual input {
+input.num, .manual input, .manual select {
   background: #031015; border: 1px solid var(--linha-forte); color: #fff; font: 13px var(--mono);
   padding: 7px 10px; outline: none;
 }
 input.num { width: 70px; text-align: center; }
 .manual { display: flex; gap: 8px; margin: 12px 0; }
-.manual input { flex: 1; user-select: text; }
+.manual input, .manual select { flex: 1; user-select: text; }
+.manual select { cursor: pointer; }
+.linha-sw h2 { margin: 0; }
+.drivers .tag { color: var(--fraco); }
+.drivers .tag.ok { color: var(--ciano); } .drivers .tag.alerta { color: var(--alerta); }
 input:focus { border-color: var(--ciano); box-shadow: 0 0 10px rgba(0, 240, 255, .35); }
 
 /* drivers */

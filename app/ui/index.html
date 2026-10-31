@@ -42,28 +42,28 @@
   <section id="aba-painel" class="aba ativa">
     <div class="cards">
       <div class="card" id="st-steamvr"><span class="led"></span><h3>STEAMVR</h3><p>—</p></div>
-      <div class="card" id="st-pico"><span class="led"></span><h3>PICO CONNECT</h3><p>—</p></div>
       <div class="card" id="st-headset"><span class="led"></span><h3>HEADSET</h3><p>—</p></div>
+      <div class="card" id="st-driver"><span class="led"></span><h3>DRIVER</h3><p>—</p></div>
       <div class="card" id="st-proxy"><span class="led"></span><h3>PROXY</h3><p>—</p></div>
     </div>
 
     <div class="metricas">
-      <div class="painel metrica"><h2>FPS NO HEADSET</h2><div class="numero" id="m-fps">--</div><small>frames/s saindo pro encoder</small></div>
-      <div class="painel metrica"><h2>TRACKING</h2><div class="numero" id="m-pose">--</div><small>poses/s do HMD</small></div>
-      <div class="painel metrica"><h2>FRAME TIME</h2><div class="numero" id="m-ft">--</div><small id="m-ft-sub">ms · média</small></div>
-      <div class="painel metrica"><h2>REAIS / SINTÉTICOS</h2><div class="numero menor" id="m-ratio">100 / 0</div><small>frame gen ainda inativo</small></div>
+      <div class="painel metrica"><h2>FPS</h2><div class="numero" id="m-fps">--</div><small>no headset</small></div>
+      <div class="painel metrica"><h2>TRACKING</h2><div class="numero" id="m-pose">--</div><small>Hz</small></div>
+      <div class="painel metrica"><h2>FRAME TIME</h2><div class="numero" id="m-ft">--</div><small id="m-ft-sub">ms</small></div>
+      <div class="painel metrica"><h2>REAL / SINT.</h2><div class="numero menor" id="m-ratio">100 / 0</div><small>%</small></div>
     </div>
 
     <div class="graficos">
       <div class="painel">
-        <h2>DESEMPENHO <em>fps · últimos minutos</em></h2>
+        <h2>FPS</h2>
         <canvas id="graf-fps"></canvas>
-        <div class="legenda"><span class="c1">frames no headset</span><span class="c2">tracking ÷ 10</span></div>
+        <div class="legenda"><span class="c1">headset</span><span class="c2">tracking ÷ 10</span></div>
       </div>
       <div class="painel">
-        <h2>FRAME TIME <em>ms · média e faixa mín–máx</em></h2>
+        <h2>FRAME TIME <em>ms</em></h2>
         <canvas id="graf-ft"></canvas>
-        <div class="legenda"><span class="c1">média</span><span class="c3">mín–máx</span><span class="c4">orçamento @72 Hz</span></div>
+        <div class="legenda"><span class="c1">média</span><span class="c3">mín–máx</span><span class="c4">72 Hz</span></div>
       </div>
     </div>
 
@@ -75,17 +75,11 @@
 
   <!-- ============ FRAME GEN ============ -->
   <section id="aba-framegen" class="aba">
-    <div class="aviso">
-      <b>&#x26A0; EM CONSTRUÇÃO</b> A DLL atual (v0.1) ainda não gera frames. Estas opções já ficam salvas no
-      <code>ghostframe.ini</code> e passam a valer quando o frame gen chegar (fases 3–5).
-    </div>
+    <div class="aviso"><b>PRÉVIA</b> ainda sem efeito: a DLL v0.1 só observa. As opções ficam salvas.</div>
 
     <div class="painel destaque">
-      <div class="linha-sw">
-        <div>
-          <h2>GHOSTFRAME</h2>
-          <p class="sub">Gera frames por <b>extrapolação</b>: só usa frames passados + a pose mais recente da cabeça. Não segura frame nenhum, então não soma atraso.</p>
-        </div>
+      <div class="linha-sw" title="Extrapolação: usa só frames passados + a pose mais recente. Não segura frame, não soma atraso.">
+        <h2>GHOSTFRAME</h2>
         <label class="sw grande"><input type="checkbox" data-chave="framegen.ativo"><span></span></label>
       </div>
     </div>
@@ -94,39 +88,37 @@
       <div class="painel">
         <h2>MULTIPLICADOR</h2>
         <div class="seg" data-chave="framegen.multiplicador">
-          <button data-valor="2"><b>2×</b><small>36 → 72 fps</small></button>
-          <button data-valor="3"><b>3×</b><small>30 → 90 fps</small></button>
+          <button data-valor="2" title="1 sintético por frame real. O mais limpo."><b>2×</b></button>
+          <button data-valor="3" title="2 sintéticos por frame real. Mais artefato em movimento rápido."><b>3×</b></button>
         </div>
-        <p class="nota">2× é o modo mais limpo. 3× prevê mais longe, então aparecem mais artefatos nas bordas de mãos e objetos rápidos.</p>
       </div>
       <div class="painel">
         <h2>QUALIDADE</h2>
         <div class="seg" data-chave="framegen.qualidade">
-          <button data-valor="0"><b>RÁPIDO</b><small>menos GPU</small></button>
-          <button data-valor="1"><b>EQUILIBRADO</b><small>padrão</small></button>
-          <button data-valor="2"><b>QUALIDADE</b><small>menos artefato</small></button>
+          <button data-valor="0"><b>RÁPIDO</b></button>
+          <button data-valor="1"><b>EQUILIBRADO</b></button>
+          <button data-valor="2"><b>QUALIDADE</b></button>
         </div>
-        <p class="nota">Orçamento: menos de 2 ms de GPU por frame gerado na RTX 3060.</p>
       </div>
     </div>
 
     <div class="painel">
       <h2>CADÊNCIA <em id="cadencia-texto"></em></h2>
       <div class="cadencia" id="cadencia"></div>
-      <div class="legenda"><span class="c1">frame real (jogo)</span><span class="c5">frame sintético (ghostframe)</span></div>
+      <div class="legenda"><span class="c1">real</span><span class="c5">sintético</span></div>
     </div>
 
     <div class="duas">
       <div class="painel">
-        <div class="linha-sw"><div><h2>CORREÇÃO POR POSE</h2><p class="sub">Reprojeta o frame gerado pela pose atual da cabeça (rotação + posição).</p></div>
+        <div class="linha-sw" title="Reprojeta o frame gerado pela pose atual da cabeça."><h2>CORREÇÃO POR POSE</h2>
           <label class="sw"><input type="checkbox" data-chave="framegen.correcao_pose"><span></span></label></div>
-        <div class="linha-sw"><div><h2>HUD NO HEADSET</h2><p class="sub">Mostra reais vs sintéticos no canto da visão.</p></div>
+        <div class="linha-sw" title="Contador de frames reais vs sintéticos na visão."><h2>HUD NO HEADSET</h2>
           <label class="sw"><input type="checkbox" data-chave="hud.ativo"><span></span></label></div>
       </div>
       <div class="painel">
-        <div class="linha-sw"><div><h2>MODO GRAVAÇÃO</h2><p class="sub">Grava cor, depth, pose e tempos para o laboratório offline (fase 3).</p></div>
+        <div class="linha-sw" title="Grava cor, depth, pose e tempos para testes offline."><h2>GRAVAÇÃO</h2>
           <label class="sw"><input type="checkbox" data-chave="gravacao.ativo"><span></span></label></div>
-        <div class="linha-sw"><div><h2>DURAÇÃO</h2><p class="sub">segundos por gravação</p></div>
+        <div class="linha-sw"><h2>SEGUNDOS</h2>
           <input class="num" type="number" min="1" max="30" data-chave="gravacao.segundos"></div>
       </div>
     </div>
@@ -135,64 +127,51 @@
   <!-- ============ OTIMIZAÇÃO ============ -->
   <section id="aba-otimizacao" class="aba">
     <div class="painel destaque">
-      <h2>TRAVA DE FPS DO VRCHAT <em>SteamVR Throttling · experimental</em></h2>
-      <p class="sub">Frame gen precisa de um ritmo fixo: o jogo travado em exatamente 1/2 ou 1/3 da taxa do headset. Sem trava, o fps oscilando entre 20 e 30 engasga mesmo com frames extras. Isto ajusta a opção por app do próprio SteamVR; o VRChat não é tocado.</p>
-      <div class="seg" id="trava">
-        <button data-valor="0"><b>SEM TRAVA</b><small>padrão do SteamVR</small></button>
-        <button data-valor="1"><b>1/2</b><small>36 @72 · 45 @90</small></button>
-        <button data-valor="2"><b>1/3</b><small>24 @72 · 30 @90</small></button>
+      <h2>TRAVA DE FPS <em>experimental</em></h2>
+      <div class="manual">
+        <select id="jogo" title="Jogos que o SteamVR já conhece"></select>
       </div>
-      <p class="nota" id="trava-nota">Feche o SteamVR antes de mudar: ele regrava o arquivo ao sair. Backup em <code>steamvr.vrsettings.ghostframe.bak</code>.</p>
+      <div class="seg" id="trava" title="Ritmo fixo para o frame gen: o jogo travado numa fração da taxa do headset.">
+        <button data-valor="0"><b>LIVRE</b></button>
+        <button data-valor="1"><b>½</b><small>36 @72 · 45 @90</small></button>
+        <button data-valor="2"><b>⅓</b><small>24 @72 · 30 @90</small></button>
+      </div>
+      <p class="nota" id="trava-nota"></p>
     </div>
 
-    <div class="duas">
-      <div class="painel">
-        <h2>STEAMVR AGORA</h2>
-        <dl class="sessao" id="steamvr-info"></dl>
-      </div>
-      <div class="painel">
-        <h2>DICAS QUE FUNCIONAM</h2>
-        <ul class="dicas">
-          <li>No Pico Connect, use <b>72 Hz</b> para o 2× (36 reais) ou <b>90 Hz</b> para o 3× (30 reais).</li>
-          <li>Wi-Fi 6 em 5 GHz, roteador no mesmo cômodo e o PC no cabo: perda de pacote parece engasgo de fps.</li>
-          <li>VRChat: limite os avatares visíveis (Avatar Culling / Safety). O gargalo é a CPU, não a GPU.</li>
-          <li>Com o frame gen ligado, deixe o Motion Smoothing do SteamVR desligado: os dois brigam.</li>
-        </ul>
-      </div>
+    <div class="painel">
+      <h2>STEAMVR</h2>
+      <dl class="sessao" id="steamvr-info"></dl>
     </div>
   </section>
 
   <!-- ============ INSTALAÇÃO ============ -->
   <section id="aba-instalacao" class="aba">
     <div class="painel destaque">
-      <h2>ALVO <em>driver de streaming onde o proxy entra</em></h2>
+      <h2>ALVO</h2>
       <div id="drivers" class="drivers"></div>
       <div class="manual">
-        <input type="text" id="alvo-manual" placeholder="ou cole a pasta do driver (a que tem driver.vrdrivermanifest)">
+        <input type="text" id="alvo-manual" placeholder="outra pasta de driver (com driver.vrdrivermanifest)">
         <button class="btn" id="btn-alvo">USAR</button>
       </div>
-      <dl class="sessao" id="alvo-info"></dl>
     </div>
 
     <div class="duas">
       <div class="painel">
-        <h2>PROXY</h2>
-        <p class="sub" id="proxy-texto">—</p>
+        <h2>PROXY <span id="proxy-tag"></span></h2>
+        <p class="nota" id="proxy-texto"></p>
         <div class="botoes">
-          <button class="btn forte" id="btn-instalar">INSTALAR</button>
+          <button class="btn forte" id="btn-instalar" title="Faz backup e troca a DLL. Pede admin se precisar.">INSTALAR</button>
           <button class="btn" id="btn-desinstalar">DESINSTALAR</button>
         </div>
-        <p class="nota">Feche o SteamVR antes. Se o driver estiver em Program Files, o Windows pede permissão de administrador. Um backup da pasta <code>bin\win64</code> é feito antes de trocar qualquer arquivo.</p>
         <div class="botoes">
-          <button class="btn fino" id="btn-pasta-driver">ABRIR PASTA DO DRIVER</button>
-          <button class="btn fino" id="btn-pasta-app">ABRIR BACKUPS</button>
+          <button class="btn fino" id="btn-pasta-driver">PASTA DO DRIVER</button>
+          <button class="btn fino" id="btn-pasta-app">BACKUPS</button>
         </div>
       </div>
       <div class="painel">
-        <h2>RELATÓRIO DE TESTE</h2>
-        <p class="sub">Junta <code>ghostframe.log</code>, <code>vrserver.txt</code>, <code>openvrpaths.vrpath</code> e o manifesto do driver numa pasta, pronta para anexar numa issue.</p>
-        <div class="botoes"><button class="btn forte" id="btn-relatorio">GERAR RELATÓRIO</button></div>
-        <p class="nota">Os arquivos da Pico não entram no relatório. A cópia do driver fica só no seu PC, na pasta de backups.</p>
+        <h2>RELATÓRIO</h2>
+        <div class="botoes"><button class="btn forte" id="btn-relatorio" title="Logs e configs numa pasta, para anexar numa issue. Sem arquivos do driver.">GERAR</button></div>
       </div>
     </div>
   </section>
@@ -200,10 +179,10 @@
   <!-- ============ LOG ============ -->
   <section id="aba-log" class="aba">
     <div class="painel">
-      <h2>GHOSTFRAME.LOG <em id="log-caminho"></em></h2>
+      <h2>LOG <em id="log-caminho"></em></h2>
       <div class="botoes"><button class="btn fino" id="btn-pasta-log">ABRIR PASTA</button></div>
       <ul class="avisos" id="avisos"></ul>
-      <pre class="terminal" id="terminal">sem log ainda. instale o proxy e abra o SteamVR.</pre>
+      <pre class="terminal" id="terminal">sem log ainda.</pre>
     </div>
   </section>
 </main>

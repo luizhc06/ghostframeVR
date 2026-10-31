@@ -68,10 +68,16 @@ Acompanhe em [Issues](https://github.com/luizhc06/ghostframevr/issues) e [Milest
 
 ### Compatibilidade
 
-| Driver de streaming | Status |
+Funciona com qualquer headset cujo lado do PC seja um **driver do SteamVR** e com qualquer jogo que rode **pelo SteamVR** (OpenVR ou OpenXR do SteamVR). O app detecta os drivers sozinho.
+
+| Driver | Status |
 |---|---|
 | Pico Connect (Pico 4) | 🎯 alvo principal — em teste |
-| Outros drivers SteamVR de streaming | 🤷 talvez funcione (o proxy é genérico) — [mande um relatório](https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml) |
+| ALVR, Steam Link, Meta Link / Air Link via SteamVR | 🤷 o proxy é genérico, mas o frame gen precisa ser validado em cada driver — [mande um relatório](https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml) |
+| Index / Vive, Windows MR | ➖ sem ganho: já têm reprojeção própria no SteamVR |
+| Jogos no runtime Oculus/Meta ou VDXR (fora do SteamVR) | ❌ não passam pelo SteamVR |
+
+Drivers que vêm dentro da pasta do SteamVR (Steam Link, Meta Link) são restaurados quando o SteamVR atualiza. O app avisa e reinstala.
 
 ## 📦 Instalação
 
@@ -81,7 +87,7 @@ Acompanhe em [Issues](https://github.com/luizhc06/ghostframevr/issues) e [Milest
 ### Pelo app (recomendado)
 
 1. Baixe o `ghostframeVR-<versão>.exe` da [última release](https://github.com/luizhc06/ghostframevr/releases) e abra. Não precisa instalar nada: a DLL do proxy vai embutida no `.exe`.
-2. Na aba **Instalação**, confira se o alvo detectado é o driver do Pico Connect e clique em **INSTALAR**. Se o driver estiver em `Program Files`, o Windows pede permissão de administrador. Antes de trocar qualquer arquivo, o app faz backup em `%LOCALAPPDATA%\ghostframeVR\backup`.
+2. Na aba **Instalação**, confira se o alvo detectado é o driver do seu headset (ex.: Pico Connect) e clique em **INSTALAR**. Se o driver estiver em `Program Files`, o Windows pede permissão de administrador. Antes de trocar qualquer arquivo, o app faz backup em `%LOCALAPPDATA%\ghostframeVR\backup`.
 3. Abra o Pico Connect e o SteamVR. A aba **Painel** mostra se o headset está conectado, o fps que chega nele e os gráficos de frame time.
 4. Para mandar um teste, use **GERAR RELATÓRIO** e anexe a pasta numa issue.
 

@@ -1,4 +1,4 @@
-// App de controle do ghostframeVR: instala o proxy no driver do Pico Connect,
+// App de controle do ghostframeVR: instala o proxy no driver de streaming do SteamVR,
 // mostra status/desempenho lendo o ghostframe.log e grava o ghostframe.ini.
 // Nunca toca no processo do jogo: só lista nomes de processos.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -70,7 +70,11 @@ mod win {
             let dados = core::ler_fim(&p, 512 * 1024).map(|t| core::ler_log(&t)).unwrap_or(Value::Null);
             json!({ "caminho": p, "idade": idade, "dados": dados })
         });
-        let steamvr = vrsettings(&ovr).and_then(|p| core::ler_json(&p)).map(|v| core::ler_steamvr(&v));
+        let jogo = cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT).to_string();
+        let vrs = vrsettings(&ovr).and_then(|p| core::ler_json(&p));
+        let steamapps = ovr.config.as_ref().and_then(|c| c.parent()).map(|s| s.join("steamapps"));
+        let jogos = vrs.as_ref().map(|v| core::jogos(v, steamapps.as_deref())).unwrap_or_default();
+        let steamvr = vrs.map(|v| core::ler_steamvr(&v, &jogo));
         json!({
             "versao": env!("CARGO_PKG_VERSION"),
             "dllEmbutida": !PROXY_DLL.is_empty(),
@@ -80,6 +84,7 @@ mod win {
             "log": log,
             "config": cfg,
             "steamvr": steamvr,
+            "jogos": jogos,
             "pastaApp": pasta_app(),
         })
     }
@@ -145,12 +150,14 @@ mod win {
     }
 
     #[tauri::command]
-    fn trava_vrchat(frames: i64) -> Result<(), String> {
+    fn trava_fps(frames: i64) -> Result<(), String> {
         if steamvr_aberto() {
             return Err("feche o SteamVR antes: ele regrava o steamvr.vrsettings ao sair".into());
         }
         let p = vrsettings(&openvrpaths()).ok_or("não achei a pasta de config do SteamVR")?;
-        core::gravar_trava(&p, frames).map_err(|e| e.to_string())
+        let cfg = config();
+        let jogo = cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT);
+        core::gravar_trava(&p, jogo, frames).map_err(|e| e.to_string())
     }
 
     /// Junta log, vrserver.txt e configs numa pasta para anexar no GitHub.
@@ -199,7 +206,7 @@ mod win {
         tauri::Builder::default()
             .manage(Mutex::new(sysinfo::System::new()))
             .invoke_handler(tauri::generate_handler![
-                estado, salvar_config, instalar, desinstalar, trava_vrchat, relatorio, abrir_pasta
+                estado, salvar_config, instalar, desinstalar, trava_fps, relatorio, abrir_pasta
             ])
             .run(tauri::generate_context!())
             .expect("falha ao abrir a janela do ghostframeVR");

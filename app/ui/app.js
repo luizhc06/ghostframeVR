@@ -101,13 +101,14 @@ function cadencia() {
     c.className = (real ? "r" : "s") + (i === passo % 24 ? " agora" : "");
   });
   $("#cadencia-texto").textContent = ligado
-    ? n === 2 ? "72 Hz = 36 reais + 36 sintéticos" : "90 Hz = 30 reais + 60 sintéticos"
-    : "desligado: só frames reais";
+    ? n === 2 ? "1 real : 1 sintético" : "1 real : 2 sintéticos"
+    : "só reais";
 }
 setInterval(() => { passo++; if ($("#aba-framegen").classList.contains("ativa")) cadencia(); }, 180);
 
 // ---------- otimização ----------
-$$("#trava button").forEach((b) => (b.onclick = () => chamar("trava_vrchat", { frames: +b.dataset.valor })));
+$$("#trava button").forEach((b) => (b.onclick = () => chamar("trava_fps", { frames: +b.dataset.valor })));
+$("#jogo").onchange = (ev) => salvar({ "app.jogo": ev.target.value });
 
 // ---------- instalação ----------
 $("#btn-instalar").onclick = (e) => chamar("instalar", {}, e.currentTarget);
@@ -191,7 +192,15 @@ const PROXY = {
   original: ["", "não instalado"],
   sobrescrito: ["alerta", "removido por atualização"],
   quebrado: ["erro", "falta a DLL _real"],
-  sem_dll: ["erro", "DLL do driver não encontrada"],
+  sem_dll: ["erro", "DLL não encontrada"],
+};
+
+// suporte do driver (src/core.rs, CONHECIDOS) -> [classe do card, rótulo]
+const SUPORTE = {
+  alvo: ["ok", "alvo principal"],
+  streaming: ["alerta", "não testado"],
+  nativo: ["alerta", "sem ganho"],
+  desconhecido: ["alerta", "desconhecido"],
 };
 
 function render(e) {
@@ -205,12 +214,13 @@ function render(e) {
 
   // status
   card("steamvr", e.processos.steamvr ? "ok" : "", e.processos.steamvr ? "rodando" : "fechado");
-  card("pico", e.processos.pico ? "ok" : "", e.processos.pico ? "aberto" : "fechado");
-  if (!e.processos.steamvr) card("headset", "", "aguardando o SteamVR");
-  else if (estado !== "instalado") card("headset", "alerta", "instale o proxy para detectar");
-  else if (vivo?.hmd && hz > 0) card("headset", "ok", `conectado · ${fmt(hz)} Hz tracking`);
-  else if (vivo?.hmd) card("headset", "alerta", "registrado, sem tracking");
+  if (!e.processos.steamvr) card("headset", "", "aguardando SteamVR");
+  else if (estado !== "instalado") card("headset", "alerta", "instale o proxy");
+  else if (vivo?.hmd && hz > 0) card("headset", "ok", `conectado · ${fmt(hz)} Hz`);
+  else if (vivo?.hmd) card("headset", "alerta", "sem tracking");
   else card("headset", "alerta", "não detectado");
+  if (!e.alvo) card("driver", "erro", "nenhum");
+  else card("driver", SUPORTE[e.alvo.suporte][0], `${e.alvo.rotulo} · ${SUPORTE[e.alvo.suporte][1]}`);
   if (!e.alvo) card("proxy", "erro", "alvo não encontrado");
   else card("proxy", ...(PROXY[estado] || ["", estado]));
 
@@ -218,18 +228,18 @@ function render(e) {
   $("#led-sys").className = "led " + (tudoOk ? "ok" : e.alvo ? "alerta" : "erro");
   $("#sys-texto").textContent = tudoOk ? "SYS//STREAMING" : e.processos.steamvr ? "SYS//STANDBY" : "SYS//IDLE";
   $("#fala").textContent =
-    !e.alvo ? "não achei o Pico Connect... me mostra onde ele mora? (aba instalação)"
-    : estado === "sobrescrito" ? "o Pico Connect se atualizou e me expulsou. reinstala?"
+    !e.alvo ? "não achei nenhum driver de streaming... me mostra onde ele mora?"
+    : estado === "sobrescrito" ? "o driver se atualizou e me expulsou. reinstala?"
     : estado !== "instalado" ? "boo. me instala no driver pra eu ver os frames."
     : tudoOk && fps ? `${fmt(fps)} frames/s passando por mim. boo!`
     : e.processos.steamvr ? "SteamVR aberto. cadê o headset?"
-    : "tudo calmo. abre o Pico Connect e o SteamVR.";
+    : "tudo calmo. abre o SteamVR.";
 
   // métricas e gráficos (só desenha a aba visível)
   $("#m-fps").textContent = fmt(fps);
   $("#m-pose").textContent = fmt(hz);
   $("#m-ft").textContent = fmt(ft, 1);
-  $("#m-ft-sub").textContent = ft == null ? "ms · média" : `ms · média (mín ${fmt(ultimoValor(present, 3), 1)} / máx ${fmt(ultimoValor(present, 4), 1)})`;
+  $("#m-ft-sub").textContent = ft == null ? "ms" : `ms · ${fmt(ultimoValor(present, 3), 1)}–${fmt(ultimoValor(present, 4), 1)}`;
   if ($("#aba-painel").classList.contains("ativa")) {
     grafico($("#graf-fps"), [
       { pts: poses.map((p) => [p[0], p[1] / 10]), cor: "#2a7fff" },
@@ -243,12 +253,11 @@ function render(e) {
   const tag = (txt, c) => `<span class="tag ${c}">${esc(txt)}</span>`;
   const d = e.log?.dados;
   $("#sessao").innerHTML = `
-    <dt>caminho de vídeo</dt><dd>${d?.video ? esc(d.video) : "—"}</dd>
-    <dt>depth do jogo</dt><dd>${d?.depth == null ? "—" : d.depth ? "sim" + tag("frame gen melhor", "ok") : "não" + tag("só cor", "alerta")}</dd>
+    <dt>vídeo</dt><dd>${d?.video ? esc(d.video) : "—"}</dd>
+    <dt>depth</dt><dd>${d?.depth == null ? "—" : d.depth ? "sim" : "não"}</dd>
     <dt>motion smoothing</dt><dd>${d?.motionSmoothing ? esc(d.motionSmoothing) : "—"}</dd>
-    <dt>resolução por olho</dt><dd>${d?.render ? esc(d.render) : "—"}</dd>
-    <dt>VRChat</dt><dd>${e.processos.vrchat ? "aberto" : "fechado"}</dd>
-    <dt>avisos</dt><dd>${d?.avisos?.length ? tag(d.avisos.length + " no log", "alerta") : "nenhum"}</dd>`;
+    <dt>resolução</dt><dd>${d?.render ? esc(d.render) : "—"}</dd>
+    <dt>avisos</dt><dd>${d?.avisos?.length ? tag(d.avisos.length, "alerta") : "0"}</dd>`;
 
   // otimização
   const s = e.steamvr;
@@ -256,14 +265,18 @@ function render(e) {
     b.classList.toggle("ativo", s && String(s.trava) === b.dataset.valor);
     b.disabled = !s || e.processos.steamvr;
   });
-  $("#trava-nota").innerHTML = !s ? "Não achei o <code>steamvr.vrsettings</code>."
-    : e.processos.steamvr ? "<b>Feche o SteamVR para mudar</b>: ele regrava o arquivo ao sair."
-    : "Backup em <code>steamvr.vrsettings.ghostframe.bak</code> antes de cada mudança.";
+  $("#trava-nota").textContent = !s ? "steamvr.vrsettings não encontrado"
+    : e.processos.steamvr ? "feche o SteamVR para mudar" : "";
+  const jogos = JSON.stringify([e.jogos, config["app.jogo"]]);
+  if ($("#jogo").dataset.lista !== jogos) {
+    $("#jogo").dataset.lista = jogos;
+    $("#jogo").innerHTML = (e.jogos || []).map((j) =>
+      `<option value="${esc(j.chave)}" ${j.chave === config["app.jogo"] ? "selected" : ""}>${esc(j.nome)}</option>`).join("");
+  }
   $("#steamvr-info").innerHTML = s ? `
     <dt>motion smoothing</dt><dd>${s.motionSmoothing == null ? "padrão" : s.motionSmoothing ? "ligado" : "desligado"}</dd>
-    <dt>supersampling</dt><dd>${s.supersampleManual ? Math.round((s.supersample ?? 1) * 100) + "% (manual)" : "automático"}</dd>
-    <dt>trava VRChat</dt><dd>${["sem trava", "1/2 da taxa", "1/3 da taxa"][s.trava] ?? s.trava}</dd>`
-    : "<dt>steamvr</dt><dd>config não encontrada</dd>";
+    <dt>supersampling</dt><dd>${s.supersampleManual ? Math.round((s.supersample ?? 1) * 100) + "%" : "auto"}</dd>`
+    : "<dt>config</dt><dd>não encontrada</dd>";
 
   // instalação
   const lista = JSON.stringify([e.drivers, config["app.alvo"]]);
@@ -271,23 +284,18 @@ function render(e) {
     $("#drivers").dataset.lista = lista;
     const auto = !config["app.alvo"];
     $("#drivers").innerHTML =
-      `<label><input type="radio" name="alvo" value="" ${auto ? "checked" : ""}><b>AUTO</b><small>primeiro driver com "pico" no nome</small></label>` +
-      e.drivers.map((dr) => `<label><input type="radio" name="alvo" value="${esc(dr.raiz)}" ${config["app.alvo"] === dr.raiz ? "checked" : ""}>
-        <b>${esc(dr.nome)}</b><small>${esc(dr.raiz)}</small></label>`).join("") +
-      (e.drivers.length ? "" : `<small class="nota">Nenhum driver externo em openvrpaths.vrpath.</small>`);
+      `<label><input type="radio" name="alvo" value="" ${auto ? "checked" : ""}><b>AUTO</b></label>` +
+      e.drivers.map((dr) => `<label title="${esc(dr.dll)}"><input type="radio" name="alvo" value="${esc(dr.raiz)}" ${config["app.alvo"] === dr.raiz ? "checked" : ""}>
+        <b>${esc(dr.rotulo)}</b>${tag(SUPORTE[dr.suporte][1], SUPORTE[dr.suporte][0])}${dr.embutido ? tag("SteamVR", "") : ""}
+        <small>${esc(dr.raiz)}</small></label>`).join("");
     $$("#drivers input").forEach((r) => (r.onchange = () => salvar({ "app.alvo": r.value })));
   }
-  $("#alvo-info").innerHTML = e.alvo ? `
-    <dt>driver</dt><dd>${esc(e.alvo.nome)}</dd>
-    <dt>dll</dt><dd>${esc(e.alvo.dll)}</dd>
-    <dt>estado</dt><dd>${tag((PROXY[estado] || ["", estado])[1], (PROXY[estado] || ["erro"])[0] || "alerta")}</dd>` : "";
-  $("#proxy-texto").textContent = !e.alvo ? "Escolha o driver alvo acima."
-    : e.processos.steamvr ? "Feche o SteamVR para instalar ou desinstalar: a DLL fica travada enquanto ele roda."
-    : !e.dllEmbutida ? "Este build não tem a DLL do proxy embutida. Use o .exe da release."
-    : { instalado: "Instalado. INSTALAR de novo atualiza a DLL para a versão deste app.",
-        sobrescrito: "O Pico Connect se atualizou e restaurou a DLL original. Reinstale.",
-        original: "Driver original. O proxy ainda não está instalado.",
-      }[estado] || "Não dá para instalar neste estado.";
+  $("#proxy-tag").innerHTML = e.alvo ? tag((PROXY[estado] || ["", estado])[1], (PROXY[estado] || ["alerta"])[0] || "alerta") : "";
+  $("#proxy-texto").textContent = !e.alvo ? "escolha um alvo"
+    : e.processos.steamvr ? "feche o SteamVR para instalar"
+    : !e.dllEmbutida ? "build sem a DLL embutida: use o .exe da release"
+    : e.alvo.embutido && estado !== "instalado" ? "driver do SteamVR: atualizações do SteamVR desfazem a instalação"
+    : "";
   $("#btn-instalar").textContent = estado === "instalado" ? "ATUALIZAR" : estado === "sobrescrito" ? "REINSTALAR" : "INSTALAR";
   $("#btn-instalar").disabled = e.processos.steamvr || !e.dllEmbutida || !["original", "instalado", "sobrescrito"].includes(estado);
   $("#btn-desinstalar").disabled = e.processos.steamvr || !["instalado", "sobrescrito"].includes(estado);

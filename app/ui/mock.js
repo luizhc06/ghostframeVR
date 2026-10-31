@@ -6,10 +6,11 @@ if (!window.__TAURI__) {
   const t0 = Date.now() / 1000;
   let cfg = {
     "framegen.ativo": "0", "framegen.multiplicador": "2", "framegen.qualidade": "1", "framegen.correcao_pose": "1",
-    "hud.ativo": "0", "gravacao.ativo": "0", "gravacao.segundos": "5", "app.alvo": "",
+    "hud.ativo": "0", "gravacao.ativo": "0", "gravacao.segundos": "5", "app.alvo": "", "app.jogo": "steam.app.438100",
   };
   let trava = 0;
   const raiz = "C:\\Program Files\\PICO Connect\\resources\\driver\\pico";
+  const steamvr = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\SteamVR\\drivers";
   const serie = (f) => {
     const agora = Date.now() / 1000 - t0 + 300;
     const pts = [];
@@ -22,7 +23,7 @@ if (!window.__TAURI__) {
     core: {
       invoke: async (cmd, a) => {
         if (cmd === "salvar_config") { Object.assign(cfg, a.valores); return; }
-        if (cmd === "trava_vrchat") { trava = a.frames; return; }
+        if (cmd === "trava_fps") { trava = a.frames; return; }
         if (cmd === "instalar") return "proxy instalado. Backup em C:\\Users\\voce\\AppData\\Local\\ghostframeVR\\backup\\win64-1793476800";
         if (cmd === "desinstalar") throw "feche o SteamVR antes: a DLL do driver fica travada enquanto ele roda";
         if (cmd === "relatorio") return "C:\\Users\\voce\\AppData\\Local\\ghostframeVR\\relatorio-1793476800";
@@ -35,12 +36,14 @@ if (!window.__TAURI__) {
         const poses = serie((t) => [t, 500 + Math.random() * 4]);
         return {
           versao: "0.1.2-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
-          processos: { steamvr: modo !== "offline", pico: modo !== "offline", vrchat: on },
+          processos: { steamvr: modo !== "offline" },
           drivers: modo === "sem-alvo" ? [] : [
-            { nome: "pico", raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll" },
-            { nome: "vrlink", raiz: "C:\\Program Files (x86)\\Steam\\steamapps\\common\\VRLink", dll: "" },
+            { nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll" },
+            { nome: "alvr_server", rotulo: "ALVR", suporte: "streaming", embutido: false, raiz: "C:\\ALVR", dll: "C:\\ALVR\\bin\\win64\\driver_alvr_server.dll" },
+            { nome: "lighthouse", rotulo: "Index / Vive", suporte: "nativo", embutido: true, raiz: steamvr + "\\lighthouse", dll: "" },
+            { nome: "vrlink", rotulo: "Steam Link", suporte: "streaming", embutido: true, raiz: steamvr + "\\vrlink", dll: "" },
           ],
-          alvo: modo === "sem-alvo" ? null : { nome: "pico", raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll", estado: on || modo === "offline" ? "instalado" : modo },
+          alvo: modo === "sem-alvo" ? null : { nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll", estado: on || modo === "offline" ? "instalado" : modo },
           log: on ? {
             caminho: "C:\\Users\\voce\\AppData\\Local\\Temp\\ghostframe.log", idade: 0.8,
             dados: {
@@ -62,6 +65,7 @@ if (!window.__TAURI__) {
           } : null,
           config: { ...cfg },
           steamvr: { trava, motionSmoothing: false, supersample: 1.0, supersampleManual: false },
+          jogos: [{ chave: "steam.app.438100", nome: "VRChat" }, { chave: "steam.app.620980", nome: "Beat Saber" }, { chave: "system.generated.jogo.exe", nome: "jogo.exe" }],
         };
       },
     },

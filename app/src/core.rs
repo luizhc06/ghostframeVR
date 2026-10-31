@@ -4,6 +4,7 @@ use serde_json::{json, Map, Value};
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Texto que só existe na nossa DLL (log de src/proxy/driver_main.cpp).
@@ -20,6 +21,7 @@ pub const PADROES: &[(&str, &str)] = &[
     ("gravacao.ativo", "0"),
     ("gravacao.segundos", "5"),
     ("app.alvo", ""),
+    ("app.jogo", VRCHAT),
 ];
 
 fn erro(msg: impl Into<String>) -> io::Error {
@@ -38,16 +40,41 @@ pub fn ler_json(p: &Path) -> Option<Value> {
 // ---------------------------------------------------------------------------
 // Driver alvo
 
+/// Drivers conhecidos: (trecho do nome no manifesto, rótulo, suporte).
+/// "alvo" = foco atual; "streaming" = deve funcionar, sem teste ainda;
+/// "nativo" = headset com reprojeção própria, sem ganho com o proxy.
+const CONHECIDOS: &[(&str, &str, &str)] = &[
+    ("pico", "Pico Connect", "alvo"),
+    ("alvr", "ALVR", "streaming"),
+    ("vrlink", "Steam Link", "streaming"),
+    ("oculus", "Meta Link / Air Link", "streaming"),
+    ("lighthouse", "Index / Vive", "nativo"),
+    ("holographic", "Windows MR", "nativo"),
+];
+
+pub fn tipo(nome: &str) -> (String, &'static str) {
+    let n = nome.to_lowercase();
+    CONHECIDOS
+        .iter()
+        .find(|(k, _, _)| n.contains(k))
+        .map(|(_, r, s)| (r.to_string(), *s))
+        .unwrap_or_else(|| (nome.to_string(), "desconhecido"))
+}
+
 #[derive(Clone)]
 pub struct Driver {
     pub nome: String,
     pub raiz: PathBuf,
     pub dll: PathBuf,
+    /// Vem dentro da pasta do SteamVR (atualizações do SteamVR podem desfazer a instalação).
+    pub embutido: bool,
 }
 
 impl Driver {
     pub fn json(&self) -> Value {
-        json!({ "nome": self.nome, "raiz": self.raiz, "dll": self.dll })
+        let (rotulo, suporte) = tipo(&self.nome);
+        json!({ "nome": self.nome, "raiz": self.raiz, "dll": self.dll, "embutido": self.embutido,
+                "rotulo": rotulo, "suporte": suporte })
     }
 }
 
@@ -61,10 +88,11 @@ fn primeiro(v: &Value, chave: &str) -> Option<PathBuf> {
     v.get(chave)?.as_array()?.first()?.as_str().map(PathBuf::from)
 }
 
-/// Lê %LOCALAPPDATA%\openvr\openvrpaths.vrpath (onde o SteamVR registra drivers externos).
+/// Lê %LOCALAPPDATA%\openvr\openvrpaths.vrpath: drivers externos (Pico Connect, ALVR...)
+/// e, da pasta do SteamVR, os embutidos que reconhecemos (Steam Link, Meta Link...).
 pub fn ler_openvrpaths(arquivo: &Path) -> OpenVrPaths {
     let v = ler_json(arquivo).unwrap_or(Value::Null);
-    let drivers = v
+    let mut drivers: Vec<Driver> = v
         .get("external_drivers")
         .and_then(Value::as_array)
         .into_iter()
@@ -72,6 +100,16 @@ pub fn ler_openvrpaths(arquivo: &Path) -> OpenVrPaths {
         .filter_map(Value::as_str)
         .map(|d| driver_em(Path::new(d)))
         .collect();
+    if let Some(Ok(pastas)) = primeiro(&v, "runtime").map(|r| fs::read_dir(r.join("drivers"))) {
+        let mut embutidos: Vec<Driver> = pastas
+            .filter_map(|e| Some(e.ok()?.path()))
+            .filter(|p| p.is_dir())
+            .map(|p| Driver { embutido: true, ..driver_em(&p) })
+            .filter(|d| tipo(&d.nome).1 != "desconhecido")
+            .collect();
+        embutidos.sort_by(|a, b| a.nome.cmp(&b.nome));
+        drivers.extend(embutidos);
+    }
     OpenVrPaths { config: primeiro(&v, "config"), log: primeiro(&v, "log"), drivers }
 }
 
@@ -81,14 +119,20 @@ pub fn driver_em(raiz: &Path) -> Driver {
         .and_then(|m| m.get("name")?.as_str().map(String::from))
         .unwrap_or_else(|| raiz.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
     let dll = raiz.join("bin").join("win64").join(format!("driver_{nome}.dll"));
-    Driver { nome, raiz: raiz.to_path_buf(), dll }
+    Driver { nome, raiz: raiz.to_path_buf(), dll, embutido: false }
 }
 
-/// Alvo padrão: o primeiro driver com "pico" no nome ou no caminho.
+/// Alvo padrão: Pico; senão o streaming que o usuário instalou (externo);
+/// senão um externo desconhecido; por último os de streaming do próprio SteamVR.
 pub fn alvo_padrao(drivers: &[Driver]) -> Option<&Driver> {
-    drivers
-        .iter()
-        .find(|d| format!("{} {}", d.nome, d.raiz.display()).to_lowercase().contains("pico"))
+    let prioridade = |d: &Driver| match (tipo(&d.nome).1, d.embutido) {
+        ("alvo", _) => 0,
+        ("streaming", false) => 1,
+        ("desconhecido", false) => 2,
+        ("streaming", true) => 3,
+        _ => 9,
+    };
+    drivers.iter().filter(|d| prioridade(d) < 9).min_by_key(|d| prioridade(d))
 }
 
 // ---------------------------------------------------------------------------
@@ -124,8 +168,20 @@ pub fn caminho_real(dll: &Path) -> PathBuf {
     dll.with_file_name(format!("{stem}_real.dll"))
 }
 
+/// O app pergunta a cada segundo; só relê a DLL (que pode ter dezenas de MB) se ela mudou.
 fn eh_nossa(p: &Path) -> bool {
-    fs::read(p).map(|b| b.windows(MARCA_PROXY.len()).any(|w| w == MARCA_PROXY)).unwrap_or(false)
+    type Cache = Option<(PathBuf, u64, Option<SystemTime>, bool)>;
+    static CACHE: Mutex<Cache> = Mutex::new(None);
+    let (tam, mtime) = fs::metadata(p).map(|m| (m.len(), m.modified().ok())).unwrap_or((0, None));
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((cp, ct, cm, r)) = c.as_ref() {
+        if cp == p && *ct == tam && *cm == mtime {
+            return *r;
+        }
+    }
+    let r = fs::read(p).map(|b| b.windows(MARCA_PROXY.len()).any(|w| w == MARCA_PROXY)).unwrap_or(false);
+    *c = Some((p.to_path_buf(), tam, mtime, r));
+    r
 }
 
 pub fn estado(dll: &Path) -> Estado {
@@ -344,11 +400,46 @@ pub fn config_para_ini(m: &Map<String, Value>) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// steamvr.vrsettings: trava de fps por app (Throttling) do VRChat
+// steamvr.vrsettings: trava de fps por jogo (Throttling)
 
-pub fn ler_steamvr(v: &Value) -> Value {
+/// Jogos que o SteamVR já conhece (blocos "steam.app.<id>" e "system.generated.<exe>")
+/// e o VRChat. Nome vem do appmanifest da Steam quando dá.
+pub fn jogos(vrsettings: &Value, steamapps: Option<&Path>) -> Vec<Value> {
+    let mut chaves: Vec<&str> = vrsettings
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(k, _)| k.as_str())
+        .filter(|k| k.starts_with("steam.app.") || k.starts_with("system.generated."))
+        .collect();
+    if !chaves.contains(&VRCHAT) {
+        chaves.insert(0, VRCHAT);
+    }
+    chaves
+        .iter()
+        .map(|k| {
+            let nome = if let Some(exe) = k.strip_prefix("system.generated.") {
+                exe.to_string()
+            } else {
+                let id = k.trim_start_matches("steam.app.");
+                steamapps
+                    .and_then(|s| nome_do_app(&s.join(format!("appmanifest_{id}.acf"))))
+                    .unwrap_or_else(|| if *k == VRCHAT { "VRChat".into() } else { format!("AppID {id}") })
+            };
+            json!({ "chave": k, "nome": nome })
+        })
+        .collect()
+}
+
+fn nome_do_app(acf: &Path) -> Option<String> {
+    fs::read_to_string(acf).ok()?.lines().find_map(|l| {
+        Some(l.trim().strip_prefix("\"name\"")?.trim().trim_matches('"').to_string())
+    })
+}
+
+pub fn ler_steamvr(v: &Value, jogo: &str) -> Value {
     json!({
-        "trava": v.get(VRCHAT).and_then(|a| a.get("framesToThrottle")).and_then(Value::as_i64).unwrap_or(0),
+        "trava": v.get(jogo).and_then(|a| a.get("framesToThrottle")).and_then(Value::as_i64).unwrap_or(0),
         "motionSmoothing": v.pointer("/steamvr/motionSmoothing"),
         "supersample": v.pointer("/steamvr/supersampleScale"),
         "supersampleManual": v.pointer("/steamvr/supersampleManualOverride"),
@@ -356,11 +447,11 @@ pub fn ler_steamvr(v: &Value) -> Value {
 }
 
 /// frames = 0 remove a trava; 1 = metade da taxa do headset; 2 = um terço.
-pub fn gravar_trava(arquivo: &Path, frames: i64) -> io::Result<()> {
+pub fn gravar_trava(arquivo: &Path, jogo: &str, frames: i64) -> io::Result<()> {
     let mut v = ler_json(arquivo).ok_or_else(|| erro(format!("não consegui ler {}", arquivo.display())))?;
     fs::copy(arquivo, arquivo.with_extension("vrsettings.ghostframe.bak"))?;
     let raiz = v.as_object_mut().ok_or_else(|| erro("steamvr.vrsettings inválido"))?;
-    let app = raiz.entry(VRCHAT).or_insert_with(|| json!({}));
+    let app = raiz.entry(jogo).or_insert_with(|| json!({}));
     let app = app.as_object_mut().ok_or_else(|| erro("steamvr.vrsettings inválido"))?;
     if frames == 0 {
         app.remove("framesToThrottle");
@@ -379,11 +470,7 @@ pub fn processos(s: &mut sysinfo::System) -> Value {
     s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     let nomes: Vec<String> = s.processes().values().map(|p| p.name().to_string_lossy().to_lowercase()).collect();
     let tem = |f: &dyn Fn(&str) -> bool| nomes.iter().any(|n| f(n));
-    json!({
-        "steamvr": tem(&|n| n.starts_with("vrserver")),
-        "pico": tem(&|n| n.contains("pico")),
-        "vrchat": tem(&|n| n.starts_with("vrchat")),
-    })
+    json!({ "steamvr": tem(&|n| n.starts_with("vrserver")) })
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +500,7 @@ mod testes {
         assert_eq!(ovr.config, Some(PathBuf::from("C:/Steam/config")));
         let d = alvo_padrao(&ovr.drivers).unwrap();
         assert_eq!(d.nome, "pico");
+        assert_eq!(d.json()["rotulo"], "Pico Connect");
         assert_eq!(estado(&d.dll), Estado::Original);
 
         let proxy = b"xx ghostframe proxy iniciado xx";
@@ -432,6 +520,27 @@ mod testes {
         assert_eq!(estado(&d.dll), Estado::Original);
         assert_eq!(fs::read(&d.dll).unwrap(), b"ORIGINAL2");
         assert!(desinstalar(&d.dll).is_err());
+    }
+
+    #[test]
+    fn detecta_drivers_embutidos_e_escolhe_streaming_externo() {
+        let raiz = tmp("emb");
+        let mk = |pasta: &Path, nome: &str| {
+            fs::create_dir_all(pasta.join("bin/win64")).unwrap();
+            fs::write(pasta.join("driver.vrdrivermanifest"), format!(r#"{{"name": "{nome}"}}"#)).unwrap();
+        };
+        for n in ["lighthouse", "vrlink", "gamepad"] {
+            mk(&raiz.join("SteamVR/drivers").join(n), n);
+        }
+        mk(&raiz.join("ALVR"), "alvr_server");
+        let vrpath = raiz.join("openvrpaths.vrpath");
+        fs::write(&vrpath, json!({"runtime": [raiz.join("SteamVR")], "external_drivers": [raiz.join("ALVR")]}).to_string()).unwrap();
+        let ovr = ler_openvrpaths(&vrpath);
+        let nomes: Vec<_> = ovr.drivers.iter().map(|d| (d.nome.as_str(), d.embutido)).collect();
+        assert_eq!(nomes, [("alvr_server", false), ("lighthouse", true), ("vrlink", true)]);
+        assert_eq!(alvo_padrao(&ovr.drivers).unwrap().nome, "alvr_server");
+        assert_eq!(alvo_padrao(&ovr.drivers[1..]).unwrap().nome, "vrlink");
+        assert!(alvo_padrao(&ovr.drivers[1..2]).is_none());
     }
 
     #[test]
@@ -476,13 +585,20 @@ mod testes {
     fn trava_do_vrchat_preserva_o_resto() {
         let d = tmp("vrs");
         let f = d.join("steamvr.vrsettings");
-        fs::write(&f, r#"{"steamvr": {"supersampleScale": 1.2}, "steam.app.438100": {"motionSmoothingOverride": 1}}"#).unwrap();
-        gravar_trava(&f, 1).unwrap();
+        fs::write(&f, r#"{"steamvr": {"supersampleScale": 1.2}, "steam.app.438100": {"motionSmoothingOverride": 1},
+            "steam.app.620980": {}, "system.generated.jogo.exe": {}}"#).unwrap();
+        fs::write(d.join("appmanifest_620980.acf"), "\"AppState\"\n{\n\t\"appid\"\t\t\"620980\"\n\t\"name\"\t\t\"Beat Saber\"\n}").unwrap();
         let v = ler_json(&f).unwrap();
-        assert_eq!(ler_steamvr(&v)["trava"], 1);
+        let nomes: Vec<_> = jogos(&v, Some(&d)).iter().map(|j| j["nome"].as_str().unwrap().to_string()).collect();
+        assert_eq!(nomes, ["VRChat", "Beat Saber", "jogo.exe"]);
+
+        gravar_trava(&f, "steam.app.620980", 1).unwrap();
+        let v = ler_json(&f).unwrap();
+        assert_eq!(ler_steamvr(&v, "steam.app.620980")["trava"], 1);
+        assert_eq!(ler_steamvr(&v, VRCHAT)["trava"], 0);
         assert_eq!(v[VRCHAT]["motionSmoothingOverride"], 1);
         assert_eq!(v["steamvr"]["supersampleScale"], 1.2);
-        gravar_trava(&f, 0).unwrap();
-        assert_eq!(ler_steamvr(&ler_json(&f).unwrap())["trava"], 0);
+        gravar_trava(&f, "steam.app.620980", 0).unwrap();
+        assert_eq!(ler_steamvr(&ler_json(&f).unwrap(), "steam.app.620980")["trava"], 0);
     }
 }
