@@ -4,6 +4,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.1-alpha] - 2026-10-31
+
+### Corrigido
+- "DLL não encontrada": o app acha a DLL que está de fato na pasta do driver, aceita manifesto com comentários (como o SteamVR) e também descobre drivers pelo `vrserver.txt` do SteamVR.
+- A lista de drivers mostra só headsets por streaming (Pico Connect, ALVR, Virtual Desktop, Steam Link, Meta Link); trackers e utilitários como o Standable não aparecem nem são escolhidos no automático.
+
+### Mudado
+- Ícone novo: fantasma com headset VR.
+
 ## [0.2.0-alpha] - 2026-10-31
 
 Primeira versão com frame gen (experimental, desligado por padrão).

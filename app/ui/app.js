@@ -7,29 +7,46 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 
 // ---------- fantasminha (mesmo desenho do ícone: icons/make_icon.py) ----------
 const GHOST = [
-  "................",
-  ".....######.....",
-  "...##########...",
-  "..############..",
-  ".##############.",
-  ".#KKKKKKKKKKKK#.",
-  ".#KwKKKKKKwKKK#.",
-  ".#KKKKKKKKKKKK#.",
-  ".##############.",
-  ".##############.",
-  ".##############.",
-  ".##############.",
-  ".##############.",
-  ".##.###..###.##.",
-  ".#...#....#...#.",
-  "................",
+  "................................",
+  "................................",
+  "..............SSSS..............",
+  "............##SSSSss............",
+  "..........####SSSS##ss..........",
+  "........######SSSS####ss........",
+  ".......#######SSSS#####ss.......",
+  "......########SSSS######ss......",
+  ".....#########SSSS#######ss.....",
+  ".....#########SSSS#######ss.....",
+  "...kkkkkkkkkkkkkkkkkkkkkkkkkk...",
+  "..kKwwwKKKKKKKKKKKKKKKKKKKKKKk..",
+  "..kKKKKKKKKKKKKKKKKKKKKKKKKKKk..",
+  "SSkKKKKKcccccKKKKKKcccccKKKKKkSS",
+  "SSkKKKKKcccccKKKKKKcccccKKKKKkSS",
+  "..kKKKKKKKKKKKKKKKKKKKKKKKKKKk..",
+  "..kKKKKKKKKKKKKKKKKKKKKKKKKKKk..",
+  "...kkkkkkkkkkkkkkkkkkkkkkkkkk...",
+  "....######################ss....",
+  "....######################ss....",
+  "....######################ss....",
+  "....######################ss....",
+  "....######################ss....",
+  "....######################ss....",
+  "....######################ss....",
+  "....######################ss....",
+  "....ssssssssssssssssssssssss....",
+  ".....ssssss..ssssss..ssssss.....",
+  "......ssss....ssss....ssss......",
+  ".......ss......ss......ss.......",
+  "................................",
+  "................................",
 ];
-const COR = { "#": "#00f0ff", K: "#02080c", w: "#ffffff" };
+const COR = { "#": "#00f0ff", s: "#00a0b0", K: "#060e14", k: "#3c606e", S: "#223a46", c: "#00f0ff", w: "#dcfcff" };
+// `px` = tamanho de cada pixel do desenho de 16 (o grid tem 32: meio pixel cada).
 function ghostSvg(px) {
   let r = "";
   GHOST.forEach((linha, y) =>
-    [...linha].forEach((c, x) => { if (COR[c]) r += `<rect x="${x}" y="${y}" width="1" height="1" fill="${COR[c]}"/>`; }));
-  return `<svg width="${16 * px}" height="${16 * px}" viewBox="0 0 16 16">${r}</svg>`;
+    [...linha].forEach((c, x) => { if (COR[c]) r += `<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="${COR[c]}"/>`; }));
+  return `<svg width="${16 * px}" height="${16 * px}" viewBox="0 0 32 32">${r}</svg>`;
 }
 $$("[data-ghost]").forEach((el) => (el.innerHTML = ghostSvg(+el.dataset.ghost)));
 
@@ -377,12 +394,14 @@ function render(e) {
     `<label><input type="radio" name="alvo" value=""${config["app.alvo"] ? "" : " checked"}><b>Automático</b></label>` +
     e.drivers.map((dr) => `<label><input type="radio" name="alvo" value="${esc(dr.raiz)}"${config["app.alvo"] === dr.raiz ? " checked" : ""}>
       <b>${esc(dr.rotulo)}</b>${tag(suporte(dr.suporte)[1], suporte(dr.suporte)[0])}${dr.embutido ? tag("SteamVR", "") : ""}
-      <small>${esc(dr.raiz)}</small></label>`).join(""));
+      <small>${esc(dr.raiz)}</small></label>`).join("") +
+    (e.drivers.length ? "" : `<p class="nota">Nenhum driver de headset encontrado. Abra o programa do headset e o SteamVR uma vez, ou cole a pasta do driver abaixo.</p>`));
 
   const [pc, pr] = e.alvo ? PROXY[estado] || ["alerta", estado] : ["", ""];
   classe($("#proxy-tag"), "tag " + pc);
   texto($("#proxy-tag"), pr);
-  texto($("#proxy-texto"), !e.alvo ? "Escolha um driver alvo."
+  texto($("#proxy-texto"), !e.alvo ? "Escolha o driver do headset."
+    : estado === "sem_dll" ? `Não achei a DLL do driver em ${e.alvo.dll}. Confira a pasta ou escolha outro driver.`
     : aberto ? "Feche o SteamVR para instalar ou remover."
     : !e.dllEmbutida ? "Build sem a DLL embutida: use o .exe da release."
     : e.alvo.embutido && estado !== "instalado" ? "Driver do SteamVR: atualizações do SteamVR desfazem a instalação."

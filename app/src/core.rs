@@ -52,25 +52,37 @@ pub fn ler_json(p: &Path) -> Option<Value> {
 // ---------------------------------------------------------------------------
 // Driver alvo
 
-/// Drivers conhecidos: (trecho do nome no manifesto, rótulo, suporte).
-/// "alvo" = foco atual; "streaming" = deve funcionar, sem teste ainda;
-/// "nativo" = headset com reprojeção própria, sem ganho com o proxy.
+/// Drivers conhecidos: (trecho do nome do driver ou da pasta, rótulo, suporte).
+/// "alvo" = foco atual; "streaming" = headset por streaming, deve funcionar, sem teste;
+/// "nativo" = headset com reprojeção própria (sem ganho); o resto (trackers, Standable,
+/// utilitários) não é headset e não aparece como alvo.
 const CONHECIDOS: &[(&str, &str, &str)] = &[
     ("pico", "Pico Connect", "alvo"),
     ("alvr", "ALVR", "streaming"),
     ("vrlink", "Steam Link", "streaming"),
+    ("virtualdesktop", "Virtual Desktop", "streaming"),
+    ("virtual desktop", "Virtual Desktop", "streaming"),
+    ("vdesktop", "Virtual Desktop", "streaming"),
     ("oculus", "Meta Link / Air Link", "streaming"),
     ("lighthouse", "Index / Vive", "nativo"),
     ("holographic", "Windows MR", "nativo"),
 ];
 
-pub fn tipo(nome: &str) -> (String, &'static str) {
+/// (rótulo, suporte) pelo nome do driver; na falta, pela pasta (ex.: "...\PICO Connect\...").
+pub fn tipo(nome: &str, raiz: &Path) -> (String, &'static str) {
     let n = nome.to_lowercase();
+    let r = raiz.to_string_lossy().to_lowercase();
     CONHECIDOS
         .iter()
         .find(|(k, _, _)| n.contains(k))
+        .or_else(|| CONHECIDOS.iter().find(|(k, _, s)| *s != "nativo" && r.contains(k)))
         .map(|(_, r, s)| (r.to_string(), *s))
         .unwrap_or_else(|| (nome.to_string(), "desconhecido"))
+}
+
+/// Headset por streaming: os únicos onde o proxy faz sentido.
+pub fn eh_streaming(d: &Driver) -> bool {
+    matches!(tipo(&d.nome, &d.raiz).1, "alvo" | "streaming")
 }
 
 #[derive(Clone)]
@@ -84,7 +96,7 @@ pub struct Driver {
 
 impl Driver {
     pub fn json(&self) -> Value {
-        let (rotulo, suporte) = tipo(&self.nome);
+        let (rotulo, suporte) = tipo(&self.nome, &self.raiz);
         json!({ "nome": self.nome, "raiz": self.raiz, "dll": self.dll, "embutido": self.embutido,
                 "rotulo": rotulo, "suporte": suporte })
     }
@@ -118,31 +130,95 @@ pub fn ler_openvrpaths(arquivo: &Path) -> OpenVrPaths {
             .filter_map(|e| Some(e.ok()?.path()))
             .filter(|p| p.is_dir())
             .map(|p| Driver { embutido: true, ..driver_em(&p) })
-            .filter(|d| tipo(&d.nome).1 != "desconhecido")
+            .filter(|d| tipo(&d.nome, &d.raiz).1 != "desconhecido")
             .collect();
         embutidos.sort_by(|a, b| a.nome.cmp(&b.nome));
         drivers.extend(embutidos);
     }
-    OpenVrPaths { runtime: primeiro(&v, "runtime"), config: primeiro(&v, "config"), log: primeiro(&v, "log"), drivers }
+    // O que o SteamVR carregou de fato na última vez (pega driver que não está no
+    // openvrpaths.vrpath, como os que se registram só enquanto o app deles está aberto).
+    let runtime = primeiro(&v, "runtime");
+    if let Some(texto) = primeiro(&v, "log").and_then(|l| ler_fim(&l.join("vrserver.txt"), 2 * 1024 * 1024).ok()) {
+        for raiz in raizes_no_log(&texto) {
+            let chave = raiz.to_string_lossy().to_lowercase();
+            if drivers.iter().any(|d| d.raiz.to_string_lossy().to_lowercase() == chave) {
+                continue;
+            }
+            let embutido = runtime.as_ref().is_some_and(|r| chave.starts_with(&r.to_string_lossy().to_lowercase()));
+            drivers.push(Driver { embutido, ..driver_em(&raiz) });
+        }
+    }
+    OpenVrPaths { runtime, config: primeiro(&v, "config"), log: primeiro(&v, "log"), drivers }
+}
+
+/// Pastas de driver citadas no vrserver.txt: qualquer caminho "...\bin\win64\driver_X.dll"
+/// (sem depender do formato exato das linhas do SteamVR).
+pub fn raizes_no_log(texto: &str) -> Vec<PathBuf> {
+    let mut r: Vec<PathBuf> = Vec::new();
+    for linha in texto.lines() {
+        // ASCII: mantém os índices iguais aos da linha original (acentos no caminho).
+        let baixa = linha.to_ascii_lowercase().replace('/', "\\");
+        let Some(fim) = baixa.find("\\bin\\win64\\driver_") else { continue };
+        // Começo do caminho: a letra do drive ("C:\"); sem ela, depois da última aspa.
+        let antes = &baixa[..fim];
+        let Some(ini) = antes.rfind(":\\").and_then(|i| i.checked_sub(1)).or_else(|| antes.rfind('"').map(|q| q + 1)) else {
+            continue;
+        };
+        let raiz = PathBuf::from(linha[ini..fim].trim_matches(|c: char| c == '"' || c == '\'' || c.is_whitespace()));
+        if !r.contains(&raiz) {
+            r.push(raiz);
+        }
+    }
+    r
+}
+
+/// Nome do driver no manifesto. O SteamVR aceita comentários e vírgula sobrando no
+/// JSON (jsoncpp); aqui, se o parser estrito falhar, pega o campo "name" direto.
+fn nome_no_manifesto(raiz: &Path) -> Option<String> {
+    let t = fs::read_to_string(raiz.join("driver.vrdrivermanifest")).ok()?;
+    let t = t.trim_start_matches('\u{feff}');
+    if let Some(n) = serde_json::from_str::<Value>(t).ok().and_then(|m| m.get("name")?.as_str().map(String::from)) {
+        return Some(n);
+    }
+    let resto = &t[t.find("\"name\"")? + 6..];
+    let resto = resto[resto.find(':')? + 1..].trim_start().strip_prefix('"')?;
+    Some(resto[..resto.find('"')?].to_string())
 }
 
 /// O SteamVR carrega <raiz>\bin\win64\driver_<name>.dll, com <name> do manifesto.
+/// Se esse arquivo não existe, vale a DLL de driver que estiver de fato na pasta.
 pub fn driver_em(raiz: &Path) -> Driver {
-    let nome = ler_json(&raiz.join("driver.vrdrivermanifest"))
-        .and_then(|m| m.get("name")?.as_str().map(String::from))
+    let pasta = raiz.join("bin").join("win64");
+    let mut nome = nome_no_manifesto(raiz)
         .unwrap_or_else(|| raiz.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
-    let dll = raiz.join("bin").join("win64").join(format!("driver_{nome}.dll"));
+    let mut dll = pasta.join(format!("driver_{nome}.dll"));
+    if !dll.exists() {
+        let achadas: Vec<String> = fs::read_dir(&pasta)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| Some(e.ok()?.file_name().to_string_lossy().into_owned()))
+            .filter(|f| {
+                let f = f.to_lowercase();
+                f.starts_with("driver_") && f.ends_with(".dll") && !f.ends_with("_real.dll")
+            })
+            .collect();
+        let alvo = nome.to_lowercase();
+        if let Some(f) = achadas.iter().find(|f| f.to_lowercase().contains(&alvo)).or(achadas.first()) {
+            dll = pasta.join(f);
+            nome = f[7..f.len() - 4].to_string();
+        }
+    }
     Driver { nome, raiz: raiz.to_path_buf(), dll, embutido: false }
 }
 
-/// Alvo padrão: Pico; senão o streaming que o usuário instalou (externo);
-/// senão um externo desconhecido; por último os de streaming do próprio SteamVR.
+/// Alvo padrão: Pico; senão o streaming que o usuário instalou (externo); por último
+/// os de streaming do próprio SteamVR.
 pub fn alvo_padrao(drivers: &[Driver]) -> Option<&Driver> {
-    let prioridade = |d: &Driver| match (tipo(&d.nome).1, d.embutido) {
+    // Só headset por streaming: trackers e utilitários (Standable etc.) nunca são alvo.
+    let prioridade = |d: &Driver| match (tipo(&d.nome, &d.raiz).1, d.embutido) {
         ("alvo", _) => 0,
         ("streaming", false) => 1,
-        ("desconhecido", false) => 2,
-        ("streaming", true) => 3,
+        ("streaming", true) => 2,
         _ => 9,
     };
     drivers.iter().filter(|d| prioridade(d) < 9).min_by_key(|d| prioridade(d))
@@ -614,6 +690,41 @@ mod testes {
         assert_eq!(alvo_padrao(&ovr.drivers).unwrap().nome, "alvr_server");
         assert_eq!(alvo_padrao(&ovr.drivers[1..]).unwrap().nome, "vrlink");
         assert!(alvo_padrao(&ovr.drivers[1..2]).is_none());
+        assert!(!eh_streaming(&ovr.drivers[1]) && eh_streaming(&ovr.drivers[2]));
+    }
+
+    #[test]
+    fn acha_a_dll_real_e_drivers_do_vrserver_txt() {
+        let raiz = tmp("dll");
+        // Manifesto com comentário e vírgula sobrando (o SteamVR aceita) e DLL com outro nome.
+        let pico = raiz.join("PICO Connect").join("driver");
+        fs::create_dir_all(pico.join("bin/win64")).unwrap();
+        fs::write(pico.join("driver.vrdrivermanifest"), "{\n // driver\n \"name\" : \"PicoStreaming\",\n}").unwrap();
+        fs::write(pico.join("bin/win64/driver_picostreaming.dll"), b"x").unwrap();
+        fs::write(pico.join("bin/win64/driver_picostreaming_real.dll"), b"x").unwrap();
+        let d = driver_em(&pico);
+        // No Windows o nome do manifesto já acha o arquivo; aqui (diferencia maiúsculas) vem do arquivo.
+        assert!(d.nome.eq_ignore_ascii_case("PicoStreaming"), "{}", d.nome);
+        assert!(d.dll.exists() && !d.dll.to_string_lossy().ends_with("_real.dll"));
+        assert_eq!(d.json()["rotulo"], "Pico Connect");
+
+        // Standable no openvrpaths, Pico só no vrserver.txt: o alvo é o Pico.
+        let std_ = raiz.join("Standable");
+        fs::create_dir_all(std_.join("bin/win64")).unwrap();
+        fs::write(std_.join("driver.vrdrivermanifest"), r#"{"name": "standable"}"#).unwrap();
+        let logs = raiz.join("logs");
+        fs::create_dir_all(&logs).unwrap();
+        let dll_pico = pico.join("bin").join("win64").join("driver_picostreaming.dll");
+        fs::write(logs.join("vrserver.txt"), format!("Wed Oct 31 2026 12:00:00.000 [Info] - Loaded server driver PicoStreaming from \"{}\"\n", dll_pico.display())).unwrap();
+        let vrpath = raiz.join("openvrpaths.vrpath");
+        fs::write(&vrpath, json!({"log": [logs], "external_drivers": [std_]}).to_string()).unwrap();
+        let ovr = ler_openvrpaths(&vrpath);
+        assert_eq!(ovr.drivers.len(), 2);
+        assert!(!eh_streaming(&ovr.drivers[0]));
+        assert_eq!(alvo_padrao(&ovr.drivers).unwrap().raiz, pico);
+
+        let r = raizes_no_log("x C:\\Program Files\\PICO Connect\\driver\\bin\\win64\\driver_pico.dll y\nnada aqui\n");
+        assert_eq!(r, [PathBuf::from("C:\\Program Files\\PICO Connect\\driver")]);
     }
 
     #[test]
