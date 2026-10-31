@@ -3,6 +3,7 @@
 // os testes automatizados rodarem no Linux.
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace gf {
@@ -24,5 +25,10 @@ std::string TempDir();
 
 // Tempo monotônico em segundos (alta resolução).
 double NowSeconds();
+
+// Dorme até NowSeconds() >= t, com precisão de ~0,1 ms (timer de alta resolução no Windows).
+void DormirAte(double t);
+
+uint32_t ProcessId();
 
 } // namespace gf

@@ -7,9 +7,12 @@
 // o SteamVR.
 #pragma once
 
+#include "framegen.h"
+
 #include <openvr_driver.h>
 
 #include <atomic>
+#include <cstring>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -49,6 +52,11 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Com o frame gen ligado (ghostframe.ini), as camadas do quadro ficam guardadas até o
+// Present: é ali que se decide se o quadro é novo (vai para o histórico do motor) ou
+// repetido (troca a camada da cena por um frame gerado). Com a trava do SteamVR
+// (framesToThrottle = N), o PostPresent entrega N frames gerados, um por vsync.
+// Desligado, tudo é repassado na hora, exatamente como antes.
 class DirectModeWrapper final : public vr::IVRDriverDirectModeComponent {
 public:
     explicit DirectModeWrapper(vr::IVRDriverDirectModeComponent *real) : m_real(real) {}
@@ -63,11 +71,54 @@ public:
     void GetFrameTiming(vr::DriverDirectMode_FrameTiming *pFrameTiming) override;
 
 private:
+    using Camada = SubmitLayerPerEye_t[2];
+    struct Conjunto {
+        vr::SharedTextureHandle_t h[3];
+        SwapTextureSetDesc_t desc;
+        uint32_t flags;
+        uint32_t pid;
+    };
+    static constexpr uint32_t kMaxCamadas = 16, kMaxConjuntos = 64;
+
+    bool AcharConjunto(vr::SharedTextureHandle_t h, Conjunto *out);
+    bool GarantirSaida(const Camada &cena);
+    void LiberarSaida();
+    bool Motor();
+    bool GerarAdiante(uint32_t k);
+    bool EntregarGerado(const Camada *camadas, uint32_t n);
+    void Falhou(const char *motivo);
+    void EsperarAte(double t);
+
     vr::IVRDriverDirectModeComponent *m_real;
     RateStats m_presentRate{"DirectMode::Present"};
     std::atomic<uint64_t> m_presents{0};
     std::atomic<uint64_t> m_layers{0};
     std::atomic<uint32_t> m_layersThisFrame{0};
+
+    // Swap sets criados pelo driver (para achar formato/flags da textura da cena).
+    std::mutex m_mutexConjuntos;
+    Conjunto m_conjuntos[kMaxConjuntos] = {};
+    uint32_t m_nConjuntos = 0;
+
+    // Estado do frame gen: só a thread do compositor (SubmitLayer/Present/PostPresent) mexe.
+    FrameGen m_fg;
+    bool m_quadroComFG = false;  // decidido no 1º SubmitLayer do quadro
+    Camada m_camadas[kMaxCamadas];
+    uint32_t m_nCamadas = 0;
+    uint32_t m_nUltimas = 0;     // camadas do último quadro real (reenviadas nos gerados)
+    Camada m_ultimas[kMaxCamadas];
+    vr::SharedTextureHandle_t m_sync = 0;
+    bool m_ultimoFoiNovo = false;
+    uint32_t m_repeticoes = 0;
+    double m_tUltimoReal = 0, m_intervaloJogo = 0, m_tUltimoPresent = 0, m_intervaloPresent = 0;
+    uint32_t m_divisor = 2;      // frames por frame real esperados (trava + 1); alfa = k / divisor
+    Conjunto m_saida[2] = {};
+    bool m_temSaida = false, m_saidaUnica = false, m_saidaNt = false;
+    uint32_t m_idxSaida = 0;
+    bool m_pendente = false;     // há um frame gerado na GPU esperando ser entregue
+    uint32_t m_idxPendente = 0, m_kPendente = 0, m_divisorPendente = 0;
+    uint32_t m_falhasSeguidas = 0;
+    bool m_desistiu = false;
 };
 
 // ---------------------------------------------------------------------------

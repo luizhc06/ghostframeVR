@@ -1,5 +1,6 @@
 #include "wrappers.h"
 
+#include "config.h"
 #include "log.h"
 #include "platform.h"
 
@@ -72,6 +73,29 @@ bool VirtualDisplayWrapper::GetTimeSinceLastVsync(float *pfSeconds, uint64_t *pu
 
 // ===========================================================================
 // IVRDriverDirectModeComponent
+
+// Dados que o frame gen precisa e que chegam por outros caminhos (host e HMD).
+namespace {
+std::atomic<double> g_periodoVsync{0.0}; // média dos intervalos entre VsyncEvent
+std::mutex g_mutexProj;
+ProjecaoOlho g_proj[2];
+
+void DefinirProjecaoGlobal(int olho, float esq, float dir, float cima, float baixo) {
+    std::lock_guard<std::mutex> lock(g_mutexProj);
+    g_proj[olho] = {esq, dir, cima, baixo};
+}
+
+ProjecaoOlho Projecao(int olho) {
+    std::lock_guard<std::mutex> lock(g_mutexProj);
+    return g_proj[olho];
+}
+
+void Media(double &media, double amostra) {
+    if (amostra <= 0 || amostra > 0.25) return; // pausas e travadas não entram
+    media = media > 0 ? media * 0.9 + amostra * 0.1 : amostra;
+}
+} // namespace
+
 void DirectModeWrapper::CreateSwapTextureSet(uint32_t pid, const SwapTextureSetDesc_t *d, SwapTextureSet_t *out) {
     m_real->CreateSwapTextureSet(pid, d, out);
     if (d && out) {
@@ -80,16 +104,33 @@ void DirectModeWrapper::CreateSwapTextureSet(uint32_t pid, const SwapTextureSetD
                 (unsigned long long)out->rSharedTextureHandles[0],
                 (unsigned long long)out->rSharedTextureHandles[1],
                 (unsigned long long)out->rSharedTextureHandles[2], out->unTextureFlags);
+        std::lock_guard<std::mutex> lock(m_mutexConjuntos);
+        uint32_t i = 0;
+        while (i < m_nConjuntos && m_conjuntos[i].h[0]) ++i; // reaproveita vaga de um destruído
+        if (i == kMaxConjuntos) i = 0;                         // cheio: o mais antigo sai
+        else if (i == m_nConjuntos) ++m_nConjuntos;
+        m_conjuntos[i] = {{out->rSharedTextureHandles[0], out->rSharedTextureHandles[1], out->rSharedTextureHandles[2]},
+                          *d, out->unTextureFlags, pid};
     }
 }
 
 void DirectModeWrapper::DestroySwapTextureSet(vr::SharedTextureHandle_t h) {
     GF_LOG("DirectMode::DestroySwapTextureSet 0x%llx", (unsigned long long)h);
+    {
+        std::lock_guard<std::mutex> lock(m_mutexConjuntos);
+        for (uint32_t i = 0; i < m_nConjuntos; ++i)
+            if (m_conjuntos[i].h[0] == h || m_conjuntos[i].h[1] == h || m_conjuntos[i].h[2] == h) m_conjuntos[i] = {};
+    }
     m_real->DestroySwapTextureSet(h);
 }
 
 void DirectModeWrapper::DestroyAllSwapTextureSets(uint32_t pid) {
     GF_LOG("DirectMode::DestroyAllSwapTextureSets pid=%u", pid);
+    {
+        std::lock_guard<std::mutex> lock(m_mutexConjuntos);
+        for (uint32_t i = 0; i < m_nConjuntos; ++i)
+            if (m_conjuntos[i].pid == pid) m_conjuntos[i] = {};
+    }
     m_real->DestroyAllSwapTextureSets(pid);
 }
 
@@ -97,9 +138,21 @@ void DirectModeWrapper::GetNextSwapTextureSetIndex(vr::SharedTextureHandle_t han
     m_real->GetNextSwapTextureSetIndex(handles, pIndices);
 }
 
+bool DirectModeWrapper::AcharConjunto(vr::SharedTextureHandle_t h, Conjunto *out) {
+    std::lock_guard<std::mutex> lock(m_mutexConjuntos);
+    for (uint32_t i = 0; i < m_nConjuntos; ++i) {
+        const Conjunto &c = m_conjuntos[i];
+        if (h && (c.h[0] == h || c.h[1] == h || c.h[2] == h)) {
+            *out = c;
+            return true;
+        }
+    }
+    return false;
+}
+
 void DirectModeWrapper::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) {
     uint64_t n = m_layers++;
-    m_layersThisFrame++;
+    bool primeira = m_layersThisFrame++ == 0;
     if (n < kVerboseCalls) {
         for (int eye = 0; eye < 2; ++eye) {
             const auto &e = perEye[eye];
@@ -111,8 +164,133 @@ void DirectModeWrapper::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) {
                     e.mHmdPose.m[0][3], e.mHmdPose.m[1][3], e.mHmdPose.m[2][3]);
         }
     }
-    // >>> Ponto de captura: texturas de cor (+ profundidade, se houver) e pose de cada olho <<<
+    if (primeira) m_quadroComFG = g_opcoes.framegen.load(std::memory_order_relaxed) && !m_desistiu;
+    if (m_quadroComFG) {
+        if (m_nCamadas < kMaxCamadas) {
+            std::memcpy(&m_camadas[m_nCamadas++], &perEye, sizeof(Camada));
+            return;
+        }
+        // Camadas demais: repassa o quadro como veio, na ordem.
+        for (uint32_t i = 0; i < m_nCamadas; ++i) m_real->SubmitLayer(m_camadas[i]);
+        m_nCamadas = 0;
+        m_quadroComFG = false;
+    }
     m_real->SubmitLayer(perEye);
+}
+
+void DirectModeWrapper::Falhou(const char *motivo) {
+    g_estatFG.falhas++;
+    if (m_falhasSeguidas++ == 0) GF_LOG("FRAMEGEN falhou: %s (repassando o original)", motivo);
+    // Falha que se repete: desiste até o frame gen ser desligado e ligado de novo.
+    if (m_falhasSeguidas >= 60 && !m_desistiu) {
+        m_desistiu = true;
+        g_estatFG.estado = FG_FALHOU;
+        GF_LOG("FRAMEGEN desativado depois de %u falhas seguidas: %s", m_falhasSeguidas, motivo);
+    }
+}
+
+bool DirectModeWrapper::Motor() {
+    if (m_desistiu) return false;
+    if (!m_fg.Iniciado()) {
+        g_estatFG.estado = FG_ESPERANDO;
+        if (!m_fg.Iniciar()) {
+            m_desistiu = true; // sem device D3D11 não há o que tentar
+            g_estatFG.estado = FG_FALHOU;
+            GF_LOG("FRAMEGEN indisponível: o motor não iniciou (repassando tudo)");
+            return false;
+        }
+        GF_LOG("FRAMEGEN motor iniciado");
+    }
+    return true;
+}
+
+bool DirectModeWrapper::GarantirSaida(const Camada &cena) {
+    Conjunto a{}, b{};
+    if (!AcharConjunto(cena[0].hTexture, &a) || !AcharConjunto(cena[1].hTexture, &b)) {
+        Falhou("textura da cena fora dos swap sets conhecidos");
+        return false;
+    }
+    bool unica = a.h[0] == b.h[0];
+    auto mesmo = [](const SwapTextureSetDesc_t &x, const SwapTextureSetDesc_t &y) {
+        return x.nWidth == y.nWidth && x.nHeight == y.nHeight && x.nFormat == y.nFormat && x.nSampleCount == y.nSampleCount;
+    };
+    if (m_temSaida && m_saidaUnica == unica && mesmo(m_saida[0].desc, a.desc) && (unica || mesmo(m_saida[1].desc, b.desc)))
+        return true;
+    LiberarSaida();
+    // O proxy pede ao próprio driver um swap set, como o compositor faz: o driver só
+    // aceita no SubmitLayer texturas que ele mesmo criou.
+    for (int olho = 0; olho < (unica ? 1 : 2); ++olho) {
+        const Conjunto &src = olho ? b : a;
+        SwapTextureSet_t out{};
+        m_real->CreateSwapTextureSet(ProcessId(), &src.desc, &out);
+        if (!out.rSharedTextureHandles[0] || !out.rSharedTextureHandles[1] || !out.rSharedTextureHandles[2]) {
+            LiberarSaida();
+            Falhou("o driver não criou o swap set do frame gen");
+            return false;
+        }
+        m_saida[olho] = {{out.rSharedTextureHandles[0], out.rSharedTextureHandles[1], out.rSharedTextureHandles[2]},
+                         src.desc, out.unTextureFlags, ProcessId()};
+        m_temSaida = true;
+    }
+    m_saidaUnica = unica;
+    m_saidaNt = (m_saida[0].flags & vr::VRSwapTextureFlag_Shared_NTHandle) != 0;
+    m_idxSaida = 2;
+    GF_LOG("FRAMEGEN swap set de saída %ux%u fmt=%u (%s)", a.desc.nWidth, a.desc.nHeight, a.desc.nFormat,
+           unica ? "um para os dois olhos" : "um por olho");
+    return true;
+}
+
+void DirectModeWrapper::LiberarSaida() {
+    if (m_temSaida) {
+        m_real->DestroySwapTextureSet(m_saida[0].h[0]);
+        if (!m_saidaUnica && m_saida[1].h[0]) m_real->DestroySwapTextureSet(m_saida[1].h[0]);
+    }
+    m_saida[0] = m_saida[1] = {};
+    m_temSaida = false;
+    m_pendente = false;
+}
+
+// Enfileira na GPU o k-ésimo frame gerado depois do último real (alfa = k / divisor),
+// para ele já estar pronto quando chegar a vez dele: o Present nunca espera a GPU.
+bool DirectModeWrapper::GerarAdiante(uint32_t k) {
+    if (m_desistiu || !m_fg.Iniciado() || !m_fg.Pronto() || m_nUltimas == 0) return false;
+    if (k >= m_divisor) return false; // nunca além de um intervalo do jogo
+    if (!GarantirSaida(m_ultimas[0])) return false;
+    uint32_t idx = (m_idxSaida + 1) % 3; // nunca a textura entregue por último (o encoder pode estar lendo)
+    if (m_pendente && m_idxPendente == idx) idx = (idx + 1) % 3;
+    vr::SharedTextureHandle_t saida[2] = {m_saida[0].h[idx], (m_saidaUnica ? m_saida[0] : m_saida[1]).h[idx]};
+    vr::VRTextureBounds_t bounds[2] = {m_ultimas[0][0].bounds, m_ultimas[0][1].bounds};
+    if (!m_fg.Gerar(float(k) / float(m_divisor), saida, bounds, m_saidaNt)) {
+        Falhou("Gerar");
+        return false;
+    }
+    m_pendente = true;
+    m_idxPendente = idx;
+    m_kPendente = k;
+    m_divisorPendente = m_divisor;
+    g_estatFG.estado = FG_PRONTO;
+    return true;
+}
+
+// Entrega o frame gerado pendente no lugar da camada da cena (as outras camadas,
+// como overlays, vão como estão). false = ainda não está pronto: o chamador segue
+// com o original.
+bool DirectModeWrapper::EntregarGerado(const Camada *camadas, uint32_t n) {
+    if (!m_pendente || n == 0 || !m_fg.Concluido()) return false;
+    m_pendente = false;
+    Camada cena;
+    std::memcpy(&cena, &camadas[0], sizeof(Camada));
+    cena[0].hTexture = m_saida[0].h[m_idxPendente];
+    cena[1].hTexture = (m_saidaUnica ? m_saida[0] : m_saida[1]).h[m_idxPendente];
+    cena[0].hDepthTexture = cena[1].hDepthTexture = 0; // o depth do frame real não vale para o gerado
+    m_real->SubmitLayer(cena);
+    for (uint32_t i = 1; i < n; ++i) m_real->SubmitLayer(camadas[i]);
+    m_real->Present(m_sync);
+    m_idxSaida = m_idxPendente;
+    m_falhasSeguidas = 0;
+    g_estatFG.gerados++;
+    g_estatFG.msGpu = m_fg.MsGpu();
+    return true;
 }
 
 void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
@@ -122,12 +300,116 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
         GF_LOG("DirectMode::Present #%llu sync=0x%llx layers=%u", (unsigned long long)n,
                 (unsigned long long)syncTexture, layers);
     m_presentRate.Tick();
-    // >>> Ponto de inserção do frame gen (caminho DirectMode) <<<
+
+    bool fg = m_quadroComFG;
+    m_quadroComFG = false;
+    if (!fg) {
+        // Frame gen desligado: repassa como sempre (e solta o que tinha alocado).
+        m_ultimoFoiNovo = false;
+        if (!g_opcoes.framegen.load(std::memory_order_relaxed)) {
+            if (m_temSaida) LiberarSaida();
+            if (m_fg.Iniciado()) m_fg.Reiniciar();
+            m_desistiu = false;
+            m_falhasSeguidas = 0;
+            m_nUltimas = 0;
+            g_estatFG.estado = FG_DESLIGADO;
+        }
+        m_real->Present(syncTexture);
+        return;
+    }
+
+    // >>> frame gen
+    double agora = NowSeconds();
+    if (m_tUltimoPresent > 0) Media(m_intervaloPresent, agora - m_tUltimoPresent);
+    m_tUltimoPresent = agora;
+    m_sync = syncTexture;
+    uint32_t nc = m_nCamadas;
+    m_nCamadas = 0;
+    const Camada &cena = m_camadas[0];
+    bool novo = nc > 0 && (m_nUltimas == 0 || cena[0].hTexture != m_ultimas[0][0].hTexture ||
+                           cena[1].hTexture != m_ultimas[0][1].hTexture ||
+                           std::memcmp(&cena[0].mHmdPose, &m_ultimas[0][0].mHmdPose, sizeof(vr::HmdMatrix34_t)) != 0);
+
+    // Quadro repetido pelo compositor (o jogo atrasou): troca pelo gerado, se estiver pronto.
+    if (nc > 0 && !novo && EntregarGerado(m_camadas, nc)) {
+        m_repeticoes++;
+        GerarAdiante(m_repeticoes + 1);
+        m_ultimoFoiNovo = false;
+        return;
+    }
+
+    if (novo) {
+        g_estatFG.reais++;
+        if (m_tUltimoReal > 0) Media(m_intervaloJogo, agora - m_tUltimoReal);
+        m_tUltimoReal = agora;
+        m_repeticoes = 0;
+        m_pendente = false; // o gerado do frame anterior ficou velho
+        std::memcpy(m_ultimas, m_camadas, nc * sizeof(Camada));
+        m_nUltimas = nc;
+        // Sem trava, o divisor sai da razão entre os intervalos do jogo e do compositor.
+        if (g_estatFG.trava.load() == 0 && m_intervaloPresent > 0 && m_intervaloJogo > 0) {
+            double r = m_intervaloJogo / m_intervaloPresent;
+            m_divisor = r < 2.5 ? 2 : 3;
+        }
+        if (Motor()) {
+            m_fg.DefinirProjecao(0, Projecao(0));
+            m_fg.DefinirProjecao(1, Projecao(1));
+            Conjunto c{};
+            bool nt = AcharConjunto(cena[0].hTexture, &c) && (c.flags & vr::VRSwapTextureFlag_Shared_NTHandle);
+            vr::SharedTextureHandle_t tex[2] = {cena[0].hTexture, cena[1].hTexture};
+            vr::VRTextureBounds_t bounds[2] = {cena[0].bounds, cena[1].bounds};
+            // O syncTexture serializa o acesso às texturas com o compositor (keyed mutex).
+            bool travou = !syncTexture || m_fg.Travar(syncTexture);
+            bool ok = travou && m_fg.NovoFrame(tex, bounds, cena[0].mHmdPose, nt);
+            if (travou && syncTexture) m_fg.Destravar();
+            if (!ok) Falhou(travou ? "NovoFrame" : "não travou o syncTexture");
+            else if (!m_fg.Pronto()) g_estatFG.estado = FG_ESPERANDO;
+        }
+    }
+
+    for (uint32_t i = 0; i < nc; ++i) m_real->SubmitLayer(m_camadas[i]);
     m_real->Present(syncTexture);
+    m_ultimoFoiNovo = novo;
+    if (novo) GerarAdiante(1);
 }
 
 void DirectModeWrapper::PostPresent(const Throttling_t *t) {
-    m_real->PostPresent(t);
+    static std::atomic<uint64_t> chamadas{0};
+    uint32_t trava = t ? t->nFramesToThrottle : 0;
+    if (chamadas++ < kVerboseCalls)
+        GF_LOG("DirectMode::PostPresent throttle=%u predict=%u", trava, t ? t->nAdditionalFramesToPredict : 0);
+    g_estatFG.trava = trava;
+    if (!m_ultimoFoiNovo || trava == 0 || m_desistiu) {
+        m_real->PostPresent(t);
+        return;
+    }
+    // Trava do SteamVR (jogo a 1/(N+1) da taxa): em vez de o driver esperar N vsyncs de
+    // uma vez, espera um por vez e entrega um frame gerado em cada um.
+    m_ultimoFoiNovo = false;
+    uint32_t extras = trava < 3 ? trava : 3;
+    if (m_divisor != extras + 1) {
+        m_divisor = extras + 1;
+        if (m_pendente && m_divisorPendente != m_divisor) {
+            m_pendente = false;
+            GerarAdiante(1); // dá tempo: a GPU tem um vsync inteiro
+        }
+    }
+    double periodo = g_periodoVsync.load();
+    if (periodo <= 0) periodo = m_intervaloPresent > 0 ? m_intervaloPresent / (extras + 1) : 1.0 / 90.0;
+    const Throttling_t um{0, t->nAdditionalFramesToPredict};
+    const double t0 = m_tUltimoPresent;
+    for (uint32_t k = 1; k <= extras; ++k) {
+        m_real->PostPresent(&um);                   // o driver espera o vsync do quadro anterior
+        DormirAte(t0 + k * periodo - 0.001);         // e o ritmo se mantém se ele voltar cedo
+        if (!EntregarGerado(m_ultimas, m_nUltimas)) {
+            // Não ficou pronto: devolve ao driver o resto da espera original.
+            const Throttling_t resto{extras - k, t->nAdditionalFramesToPredict};
+            m_real->PostPresent(&resto);
+            return;
+        }
+        if (k < extras) GerarAdiante(k + 1);
+    }
+    m_real->PostPresent(&um);
 }
 
 void DirectModeWrapper::GetFrameTiming(vr::DriverDirectMode_FrameTiming *ft) {
@@ -165,6 +447,17 @@ void *DeviceWrapper::GetComponent(const char *name) {
     GF_LOG("Device(%s)::GetComponent(\"%s\") -> %s", DeviceClassName(m_class),
             name ? name : "(null)", comp ? "IMPLEMENTADO" : "null");
     if (!comp || !name) return comp;
+
+    if (std::strcmp(name, vr::IVRDisplayComponent_Version) == 0) {
+        // Só leitura: o frame gen precisa do frustum de cada olho.
+        auto *d = static_cast<vr::IVRDisplayComponent *>(comp);
+        for (int olho = 0; olho < 2; ++olho) {
+            float l = -1, r = 1, t = -1, b = 1;
+            d->GetProjectionRaw(olho ? vr::Eye_Right : vr::Eye_Left, &l, &r, &t, &b);
+            DefinirProjecaoGlobal(olho, l, r, t, b);
+            GF_LOG("  projeção olho %d: l=%.3f r=%.3f t=%.3f b=%.3f", olho, l, r, t, b);
+        }
+    }
 
     std::lock_guard<std::mutex> lock(m_mutex);
     if (std::strcmp(name, vr::IVRVirtualDisplay_Version) == 0) {
@@ -215,6 +508,13 @@ void ServerDriverHostWrapper::TrackedDevicePoseUpdated(uint32_t dev, const vr::D
 
 void ServerDriverHostWrapper::VsyncEvent(double offset) {
     m_vsyncRate.Tick();
+    static double ultimo = 0;
+    double agora = NowSeconds();
+    if (ultimo > 0) {
+        double p = g_periodoVsync.load(), d = agora - ultimo;
+        if (d > 0.002 && d < 0.05) g_periodoVsync.store(p > 0 ? p * 0.95 + d * 0.05 : d);
+    }
+    ultimo = agora;
     m_real->VsyncEvent(offset);
 }
 
@@ -245,6 +545,13 @@ void ServerDriverHostWrapper::SetDisplayEyeToHead(uint32_t dev, const vr::HmdMat
 }
 
 void ServerDriverHostWrapper::SetDisplayProjectionRaw(uint32_t dev, const vr::HmdRect2_t &l, const vr::HmdRect2_t &r) {
+    if (dev == vr::k_unTrackedDeviceIndex_Hmd) {
+        DefinirProjecaoGlobal(0, l.vTopLeft.v[0], l.vBottomRight.v[0], l.vTopLeft.v[1], l.vBottomRight.v[1]);
+        DefinirProjecaoGlobal(1, r.vTopLeft.v[0], r.vBottomRight.v[0], r.vTopLeft.v[1], r.vBottomRight.v[1]);
+        GF_LOG("Host::SetDisplayProjectionRaw l=[%.3f %.3f %.3f %.3f] r=[%.3f %.3f %.3f %.3f]",
+               l.vTopLeft.v[0], l.vBottomRight.v[0], l.vTopLeft.v[1], l.vBottomRight.v[1],
+               r.vTopLeft.v[0], r.vBottomRight.v[0], r.vTopLeft.v[1], r.vBottomRight.v[1]);
+    }
     m_real->SetDisplayProjectionRaw(dev, l, r);
 }
 
@@ -278,6 +585,7 @@ vr::DriverHandle_t DriverContextWrapper::GetDriverHandle() { return m_real->GetD
 // ===========================================================================
 // IServerTrackedDeviceProvider
 vr::EVRInitError ProviderWrapper::Init(vr::IVRDriverContext *ctx) {
+    IniciarFundo(); // relê o ghostframe.ini e loga as estatísticas do frame gen
     m_context = std::make_unique<DriverContextWrapper>(ctx);
     vr::EVRInitError r = m_real->Init(m_context.get());
     GF_LOG("Provider::Init -> %d", (int)r);
@@ -286,6 +594,7 @@ vr::EVRInitError ProviderWrapper::Init(vr::IVRDriverContext *ctx) {
 
 void ProviderWrapper::Cleanup() {
     GF_LOG("Provider::Cleanup");
+    PararFundo();
     m_real->Cleanup();
 }
 
