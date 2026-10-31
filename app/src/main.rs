@@ -4,7 +4,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![cfg_attr(not(windows), allow(dead_code))]
 
+mod auto;
 mod core;
+mod hud;
 
 #[cfg(not(windows))]
 fn main() {
