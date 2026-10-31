@@ -15,6 +15,11 @@
 
 #include <cstdint>
 
+#ifdef _WIN32
+struct ID3D11Device;
+struct ID3D11Texture2D;
+#endif
+
 namespace gf {
 
 // Tangentes do frustum de um olho, como em IVRServerDriverHost::SetDisplayProjectionRaw.
@@ -61,13 +66,25 @@ public:
     // Tempo de GPU do último Gerar concluído, em ms (timestamp queries; -1 sem medida).
     float MsGpu() const;
 
-    // Esquece o histórico (ex.: resolução mudou, frame gen desligado).
+    // Esquece o histórico (ex.: resolução mudou, frame gen desligado) e solta as texturas
+    // abertas pelos handles: chame também quando swap sets forem destruídos, porque um
+    // handle novo pode reaproveitar o valor de um antigo.
     void Reiniciar();
 
     struct Impl;
 
 private:
+    friend struct FrameGenTeste;
     Impl *m = nullptr;
 };
+
+#ifdef _WIN32
+// Gancho só do framegen_d3d_test: o WARP não compartilha texturas entre devices, então o
+// teste cria as texturas no device do motor e as põe no cache como se viessem de handles.
+struct FrameGenTeste {
+    static ::ID3D11Device *Device(FrameGen &fg);
+    static bool Injetar(FrameGen &fg, vr::SharedTextureHandle_t h, ::ID3D11Texture2D *tex);
+};
+#endif
 
 } // namespace gf
