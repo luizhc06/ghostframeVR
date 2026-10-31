@@ -1,0 +1,78 @@
+name: 🧪 Relatório de teste
+description: Testou o ghostframeVR? Mande o log — é a contribuição mais útil agora.
+title: "[Teste] <headset> + <app de streaming> — <resultado curto>"
+labels: ["test-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por testar! 👻 Preencha o que souber. O **log** é o mais importante.
+  - type: input
+    id: version
+    attributes:
+      label: Versão do ghostframeVR
+      placeholder: v0.1.0-alpha
+    validations:
+      required: true
+  - type: input
+    id: headset
+    attributes:
+      label: Headset
+      placeholder: Pico 4
+    validations:
+      required: true
+  - type: input
+    id: streamer
+    attributes:
+      label: App de streaming e versão
+      placeholder: Pico Connect 10.x
+    validations:
+      required: true
+  - type: input
+    id: driver
+    attributes:
+      label: Nome da DLL do driver
+      description: O arquivo que você renomeou para `_real.dll`
+      placeholder: driver_xxx.dll
+  - type: input
+    id: pc
+    attributes:
+      label: CPU / GPU / RAM
+      placeholder: Ryzen 5 5500 / RTX 3060 12GB / 16GB
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Conexão
+      options: [Wi-Fi 5, Wi-Fi 6/6E, Cabo USB, Outro]
+  - type: input
+    id: steamvr
+    attributes:
+      label: Versão do SteamVR
+      placeholder: "2.x (beta?)"
+  - type: dropdown
+    id: result
+    attributes:
+      label: O que aconteceu?
+      options:
+        - Funcionou normal, log gerado
+        - SteamVR não detectou o headset
+        - SteamVR travou / fechou
+        - Nenhum log foi gerado
+        - Outro (descreva abaixo)
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: ghostframe.log
+      description: Arraste o arquivo aqui ou cole o conteúdo (pelo menos as primeiras ~200 linhas).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Observações
+      description: Jogo/mundo testado, fps percebido, qualquer coisa estranha.

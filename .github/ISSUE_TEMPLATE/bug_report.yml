@@ -1,0 +1,39 @@
+name: 🐛 Bug
+description: Algo quebrou ou se comportou errado.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: O que aconteceu
+      description: E o que você esperava que acontecesse.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Como reproduzir
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versão do ghostframeVR
+      placeholder: v0.1.0-alpha ou hash do commit
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Headset / app de streaming / SteamVR
+      placeholder: Pico 4 / Pico Connect 10.x / SteamVR 2.x
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: ghostframe.log e, se possível, Steam\logs\vrserver.txt
+      render: text

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-label="ghostframeVR — frame generation para VR via streaming">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0d17"/>
+      <stop offset="1" stop-color="#161a2e"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7c5cff"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="360" rx="24" fill="url(#bg)"/>
+
+  <!-- grade sutil -->
+  <g stroke="#ffffff" stroke-opacity="0.04">
+    <path d="M0 60H1280M0 120H1280M0 180H1280M0 240H1280M0 300H1280"/>
+    <path d="M160 0V360M320 0V360M480 0V360M640 0V360M800 0V360M960 0V360M1120 0V360"/>
+  </g>
+
+  <!-- frames: real, fantasma, real, fantasma -->
+  <g transform="translate(820 92)">
+    <rect x="0"   y="0" width="96" height="176" rx="14" fill="none" stroke="#e5e7eb" stroke-width="4"/>
+    <rect x="72"  y="0" width="96" height="176" rx="14" fill="#7c5cff" fill-opacity="0.10" stroke="url(#accent)" stroke-width="4" stroke-dasharray="10 8" filter="url(#glow)"/>
+    <rect x="144" y="0" width="96" height="176" rx="14" fill="none" stroke="#e5e7eb" stroke-width="4"/>
+    <rect x="216" y="0" width="96" height="176" rx="14" fill="#22d3ee" fill-opacity="0.10" stroke="url(#accent)" stroke-width="4" stroke-dasharray="10 8" filter="url(#glow)"/>
+    <!-- fantasminha -->
+    <path transform="translate(102 58)" d="M18 0C8 0 0 8 0 18V56L6 50L12 56L18 50L24 56L30 50L36 56V18C36 8 28 0 18 0Z" fill="#e5e7eb" fill-opacity="0.9"/>
+    <circle cx="114" cy="76" r="3.5" fill="#0b0d17"/>
+    <circle cx="126" cy="76" r="3.5" fill="#0b0d17"/>
+  </g>
+
+  <text x="96" y="168" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif" font-size="76" font-weight="800" fill="#f3f4f6">ghostframe<tspan fill="url(#accent)">VR</tspan></text>
+  <text x="100" y="218" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif" font-size="26" fill="#9ca3af">Frame generation para VR via streaming no SteamVR</text>
+  <text x="100" y="262" font-family="Consolas, Menlo, monospace" font-size="18" fill="#6b7280">36 fps renderizados  →  72 fps no headset</text>
+</svg>
