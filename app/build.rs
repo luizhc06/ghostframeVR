@@ -13,6 +13,16 @@ fn main() {
     }
     println!("cargo:rerun-if-env-changed=GF_PROXY_DLL");
 
+    // Ponte cliente OpenVR (src/vr.rs). Compila em todo alvo para o `cargo test` do
+    // Linux pegar erro de C++ e de link antes do CI do Windows.
+    cc::Build::new()
+        .cpp(true)
+        .file("native/gf_openvr.cpp")
+        .include("../third_party/openvr")
+        .compile("gf_openvr");
+    println!("cargo:rerun-if-changed=native/gf_openvr.cpp");
+    println!("cargo:rerun-if-changed=../third_party/openvr/openvr.h");
+
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         tauri_build::build();
     }

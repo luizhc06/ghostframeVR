@@ -5,6 +5,7 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 mod core;
+mod vr;
 
 #[cfg(not(windows))]
 fn main() {
