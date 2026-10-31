@@ -14,14 +14,23 @@ pub const VRCHAT: &str = "steam.app.438100";
 /// Opções do ghostframe.ini e seus padrões. Tudo desligado por padrão.
 pub const PADROES: &[(&str, &str)] = &[
     ("framegen.ativo", "0"),
+    ("framegen.modo", "auto"),
     ("framegen.multiplicador", "2"),
     ("framegen.qualidade", "1"),
     ("framegen.correcao_pose", "1"),
     ("hud.ativo", "0"),
+    ("hud.ancora", "pe"),
+    ("hud.tamanho", "12"),
+    ("hud.opacidade", "90"),
+    ("hud.x", "0"),
+    ("hud.y", "0"),
+    ("hud.z", "0"),
+    ("hud.itens", "fps,frames,ft,graf"),
     ("gravacao.ativo", "0"),
     ("gravacao.segundos", "5"),
     ("app.alvo", ""),
     ("app.jogo", VRCHAT),
+    ("app.autostart", "0"),
 ];
 
 fn erro(msg: impl Into<String>) -> io::Error {
