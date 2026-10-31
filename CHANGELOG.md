@@ -4,6 +4,21 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.0-alpha] - 2026-10-31
+
+Primeira versão com frame gen (experimental, desligado por padrão).
+
+### Adicionado
+- Frame gen por extrapolação na GPU, dentro do driver (`docs/FRAMEGEN.md`):
+  - luma em 1/4 da resolução, frame anterior reprojetado pela pose (o giro da cabeça fica com o timewarp do headset), fluxo por blocos e deformação do último frame real;
+  - com a trava do SteamVR (½ ou ⅓), o proxy entrega um frame gerado em cada vsync entre os reais; sem trava, troca os frames que o compositor repetiria;
+  - frames gerados com antecedência na GPU (o Present nunca espera); qualquer falha volta a só repassar e fica no log.
+- `ghostframe.ini` relido em segundo plano pelo proxy; estatísticas `FRAMEGEN` no log a cada 2 s.
+- App: liga o frame gen em Auto (2× ou 3× pelo que o jogo aguenta) ou Manual, mostra estado, frames gerados e custo de GPU; só trava o jogo com o frame gen funcionando e desfaz a trava que pôs quando ele para.
+- HUD mostra frames reais, gerados e o custo de GPU.
+- Barra lateral de volta na interface.
+- Testes: referência do algoritmo em CPU (Linux e Windows) e motor D3D11 rodando em GPU por software na CI do Windows.
+
 ## [0.1.3-alpha] - 2026-10-31
 
 ### Adicionado

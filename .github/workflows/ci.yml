@@ -42,6 +42,8 @@ jobs:
         run: cmake -S . -B build -A x64
       - name: Compilar
         run: cmake --build build --config Release
+      - name: Testar (frame gen no WARP)
+        run: ctest --test-dir build -C Release --output-on-failure
       - name: Conferir export HmdDriverFactory
         shell: pwsh
         run: |

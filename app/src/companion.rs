@@ -7,9 +7,6 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// A DLL ainda não gera frames: o modo auto só recomenda e nunca trava o jogo.
-/// Vira detecção de verdade quando o proxy anunciar o frame gen (fase 5).
-pub const FRAMEGEN_DISPONIVEL: bool = false;
 const CHAVE_HUD: &str = "io.github.luizhc06.ghostframevr.hud";
 pub const SEM_SESSAO: &str = "SteamVR desconectado";
 
@@ -76,6 +73,28 @@ struct Sessao {
     /// O pulso segue o índice do controle de quando foi posicionado: reaplica de tempos
     /// em tempos para pegar um controle que reconectou com outro índice.
     posicionado: Instant,
+    /// Desde quando o frame gen está ligado (o "esperando" só vale no começo).
+    ligado_desde: Option<Instant>,
+    /// Com a nossa trava, desde quando nenhum frame gerado chega ao driver.
+    sem_entrega: Option<Instant>,
+    /// Travou sem entregar frames: não trava de novo até o frame gen ser religado.
+    fg_bloqueado: bool,
+}
+
+/// Trava que o app pôs para o frame gen, gravada em disco: o SteamVR persiste a trava
+/// no steamvr.vrsettings, então o app tem de lembrar dela mesmo depois de reiniciar.
+fn trava_nossa(app: &std::path::Path) -> Option<(String, i64)> {
+    let v = core::ler_json(&app.join("trava.json"))?;
+    Some((v["jogo"].as_str()?.to_string(), v["valor"].as_i64()?))
+}
+
+fn gravar_trava_nossa(app: &std::path::Path, t: &Option<(String, i64)>) {
+    let arquivo = app.join("trava.json");
+    let _ = match t {
+        Some((jogo, valor)) => std::fs::create_dir_all(app)
+            .and_then(|_| core::gravar_atomico(&arquivo, &json!({ "jogo": jogo, "valor": valor }).to_string())),
+        None => std::fs::remove_file(&arquivo),
+    };
 }
 
 struct Gesto {
@@ -161,6 +180,9 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
                         olhando: false,
                         fade: 0.0,
                         posicionado: Instant::now(),
+                        ligado_desde: None,
+                        sem_entrega: None,
+                        fg_bloqueado: false,
                     });
                     painel.lock().unwrap_or_else(|e| e.into_inner()).erro = None;
                 }
@@ -200,57 +222,133 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
             "trava": trava,
         });
 
-        // Modo auto: com o frame gen indisponível a decisão é sempre "sem trava" (Auto garante).
+        // O que o proxy está fazendo, pelo ghostframe.log (linhas STATS e FRAMEGEN).
+        let log = core::alvo(&cfg, &ovr)
+            .and_then(|d| core::log_do_alvo(&d))
+            .filter(|(_, idade)| *idade < 6.0)
+            .and_then(|(p, _)| core::ler_fim(&p, 64 * 1024).ok())
+            .map(|t| core::ler_log(&t))
+            .unwrap_or(Value::Null);
+        let fg = &log["framegen"];
+        let fg_num = |k: &str| fg[k].as_f64().map(|x| x as f32);
+        let ligado = texto(&cfg, "framegen.ativo") == "1";
+        let agora = Instant::now();
+        if ligado {
+            s.ligado_desde.get_or_insert(agora);
+        } else {
+            s.ligado_desde = None;
+            s.fg_bloqueado = false;
+        }
+        // Funcionando = o proxy gerou frames ("pronto"). "esperando" só conta nos primeiros
+        // segundos depois de ligar; parado em "esperando" não segura a trava.
+        let no_inicio = s.ligado_desde.is_some_and(|t| agora.duration_since(t) < Duration::from_secs(10));
+        let fg_ok = ligado
+            && !s.fg_bloqueado
+            && match fg["estado"].as_str() {
+                Some("pronto") => true,
+                Some("esperando") => no_inicio,
+                _ => false,
+            };
+
         let decisao = match (&info, &timing) {
             (Some(i), Some(t)) => Some(auto.atualizar(&auto::Entrada {
                 hz: i.hz,
                 ms_trabalho: t.ms_trabalho,
-                framegen_disponivel: FRAMEGEN_DISPONIVEL,
+                framegen_disponivel: fg_ok,
                 agora_s: inicio.elapsed().as_secs_f64(),
             })),
             _ => None,
         };
-        // Só com o frame gen ligado em Auto: desligado, a trava é do usuário (cartão SteamVR).
-        let modo_auto = texto(&cfg, "framegen.ativo") == "1" && texto(&cfg, "framegen.modo") == "auto";
-        if let Some(d) = decisao.filter(|_| modo_auto) {
-            if i64::from(d.trava) != trava {
-                let t = vr::Valor::Int(d.trava.into());
-                let _ = s.vr.gravar(jogo, "framesToThrottle", t);
-                let _ = s.vr.gravar(jogo, "additionalFramesToPredict", t);
+
+        // Trava do jogo para o frame gen: Auto decide; Manual segue o multiplicador escolhido.
+        // Sem frame gen funcionando, só desfaz a trava que o próprio app pôs (a do usuário fica).
+        let gravar_trava = |j: &str, t: i64| {
+            let v = vr::Valor::Int(t as i32);
+            s.vr.gravar(j, "framesToThrottle", v).and_then(|_| s.vr.gravar(j, "additionalFramesToPredict", v))
+        };
+        let mut nossa = trava_nossa(&c.app);
+        // Trocou de jogo: a trava que o app pôs no jogo anterior sai primeiro.
+        if let Some((j, _)) = nossa.clone().filter(|(j, _)| j != jogo) {
+            match gravar_trava(&j, 0) {
+                Ok(()) => {
+                    nossa = None;
+                    gravar_trava_nossa(&c.app, &nossa);
+                }
+                Err(e) => erro = Some(format!("Trava de fps: {e}")),
             }
         }
+        let manual = texto(&cfg, "framegen.multiplicador").parse::<i64>().unwrap_or(2).clamp(2, 3) - 1;
+        let alvo_trava = if fg_ok {
+            if texto(&cfg, "framegen.modo") == "auto" { decisao.map(|d| i64::from(d.trava)) } else { Some(manual) }
+        } else if nossa.is_some() {
+            Some(0)
+        } else {
+            None
+        };
+        if let Some(t) = alvo_trava.filter(|t| *t != trava) {
+            // Lembra antes de gravar: se a 2ª escrita falhar, a trava ainda é nossa.
+            let antes = nossa.clone();
+            if t > 0 {
+                gravar_trava_nossa(&c.app, &Some((jogo.to_string(), t)));
+            }
+            match gravar_trava(jogo, t) {
+                Ok(()) => {
+                    nossa = (t > 0).then(|| (jogo.to_string(), t));
+                    gravar_trava_nossa(&c.app, &nossa);
+                }
+                Err(e) => {
+                    let lembrar = if t > 0 { Some((jogo.to_string(), t)) } else { antes };
+                    gravar_trava_nossa(&c.app, &lembrar);
+                    erro = Some(format!("Trava de fps: {e}"));
+                }
+            }
+        }
+        // Com a nossa trava, o proxy tem de estar entregando frames: senão o jogo ficaria
+        // a meia taxa sem nada no lugar. ~6 s sem gerados desfaz e bloqueia até religar.
+        let gerados_agora = fg_num("gerados").unwrap_or(0.0);
+        if trava > 0 && nossa.as_ref().is_some_and(|(_, v)| *v > 0) && gerados_agora < 0.5 {
+            if agora.duration_since(*s.sem_entrega.get_or_insert(agora)) > Duration::from_secs(6) {
+                s.fg_bloqueado = true;
+                erro = Some("o frame gen não entregou frames com a trava ligada: trava desfeita (veja o log)".into());
+            }
+        } else {
+            s.sem_entrega = None;
+        }
 
-        // fps que chega no headset: vem do proxy (linhas STATS do ghostframe.log).
-        let fps_headset = core::alvo(&cfg, &ovr)
-            .and_then(|d| core::log_do_alvo(&d))
-            .filter(|(_, idade)| *idade < 6.0)
-            .and_then(|(p, _)| core::ler_fim(&p, 64 * 1024).ok())
-            .and_then(|t| {
-                let l = core::ler_log(&t);
-                let st = &l["stats"];
-                let serie = st.get("DirectMode::Present").or_else(|| st.get("VirtualDisplay::Present"))?;
-                serie.as_array()?.last()?.get(1)?.as_f64().map(|x| x as f32)
-            });
+        // fps que chega no headset: os Present do compositor mais os gerados que o proxy
+        // entrega sozinho com a trava (sem trava, o gerado ocupa o lugar de um repetido).
+        let st = &log["stats"];
+        let present = st
+            .get("DirectMode::Present")
+            .or_else(|| st.get("VirtualDisplay::Present"))
+            .and_then(|s| s.as_array()?.last()?.get(1)?.as_f64())
+            .map(|x| x as f32);
+        let gerados = fg_num("gerados").filter(|_| ligado);
+        let extras = if fg_num("trava").unwrap_or(0.0) > 0.0 { gerados.unwrap_or(0.0) } else { 0.0 };
+        let fps_headset = present.map(|p| p + extras);
         if let Some(x) = fps_headset.or(timing.as_ref().map(|t| t.fps_jogo)) {
             if historico.len() == 60 {
                 historico.remove(0);
             }
             historico.push(x);
         }
-        let modo = if !FRAMEGEN_DISPONIVEL || texto(&cfg, "framegen.ativo") != "1" {
+        let modo = if !ligado {
             "SEM FG".to_string()
+        } else if !fg_ok {
+            "FG ESPERANDO".to_string()
+        } else if texto(&cfg, "framegen.modo") == "auto" {
+            format!("AUTO {}×", decisao.map(|d| d.multiplicador).unwrap_or(1))
         } else {
-            let n = decisao.map(|d| d.multiplicador).unwrap_or(1);
-            if texto(&cfg, "framegen.modo") == "auto" { format!("AUTO {n}×") } else { format!("MANUAL {}×", texto(&cfg, "framegen.multiplicador")) }
+            format!("MANUAL {}×", manual + 1)
         };
         let metricas = hud::Metricas {
             fps_headset,
             fps_jogo: timing.as_ref().map(|t| t.fps_jogo),
             hz: info.as_ref().map(|i| i.hz),
-            reais: fps_headset.map(|x| x.round() as u32),
-            gerados: Some(0),
+            reais: fg_num("reais").filter(|_| ligado).or(present).map(|x| x.round() as u32),
+            gerados: Some(gerados.map(|x| x.round() as u32).unwrap_or(0)),
             ms_jogo: timing.as_ref().map(|t| t.ms_trabalho),
-            ms_framegen: None,
+            ms_framegen: fg_num("gpuMs").filter(|x| *x >= 0.0 && ligado),
             latencia_ms: None,
             modo,
             historico: historico.clone(),

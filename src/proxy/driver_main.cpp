@@ -30,7 +30,8 @@ std::unique_ptr<gf::ProviderWrapper> g_provider;
 void LoadReal() {
     gf::LogInit();
     std::string path = gf::RealDriverPath();
-    GF_LOG("ghostframe proxy iniciado. DLL própria: %s", gf::OwnModulePath().c_str());
+    // "recursos:" diz ao app o que esta DLL sabe fazer (proxy antigo = sem frame gen).
+    GF_LOG("ghostframe proxy iniciado (recursos: framegen). DLL própria: %s", gf::OwnModulePath().c_str());
     GF_LOG("Carregando driver real: %s", path.c_str());
     std::string err;
     gf::LibHandle lib = gf::LoadLib(path, &err);

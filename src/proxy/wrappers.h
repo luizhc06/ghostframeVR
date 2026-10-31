@@ -7,12 +7,16 @@
 // o SteamVR.
 #pragma once
 
+#include "framegen.h"
+
 #include <openvr_driver.h>
 
 #include <atomic>
+#include <cstring>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace gf {
@@ -49,9 +53,15 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Com o frame gen ligado (ghostframe.ini), as camadas do quadro ficam guardadas até o
+// Present: é ali que se decide se o quadro é novo (vai para o histórico do motor) ou
+// repetido (troca a camada da cena por um frame gerado). Com a trava do SteamVR
+// (framesToThrottle = N), o PostPresent entrega N frames gerados, um por vsync.
+// Desligado, tudo é repassado na hora, exatamente como antes.
 class DirectModeWrapper final : public vr::IVRDriverDirectModeComponent {
 public:
     explicit DirectModeWrapper(vr::IVRDriverDirectModeComponent *real) : m_real(real) {}
+    ~DirectModeWrapper();
 
     void CreateSwapTextureSet(uint32_t unPid, const SwapTextureSetDesc_t *pDesc, SwapTextureSet_t *pOut) override;
     void DestroySwapTextureSet(vr::SharedTextureHandle_t h) override;
@@ -63,11 +73,69 @@ public:
     void GetFrameTiming(vr::DriverDirectMode_FrameTiming *pFrameTiming) override;
 
 private:
+    using Camada = SubmitLayerPerEye_t[2];
+    struct Conjunto {
+        vr::SharedTextureHandle_t h[3];
+        SwapTextureSetDesc_t desc;
+        uint32_t flags;
+        uint32_t pid;
+    };
+    static constexpr uint32_t kMaxCamadas = 16, kMaxConjuntos = 64;
+
+    bool AcharConjunto(vr::SharedTextureHandle_t h, Conjunto *out);
+    bool GarantirSaida(const Camada &cena);
+    void LiberarSaida();
+    bool Motor();
+    bool MotorOk() const { return m_motor.load() == 2; }
+    void Esquecidos();
+    void Reenviar(const Camada *camadas, uint32_t n, double atraso);
+    bool GerarAdiante(uint32_t k);
+    bool EntregarGerado(const Camada *camadas, uint32_t n);
+    void Falhou(const char *motivo);
+    void EsperarAte(double t);
+
     vr::IVRDriverDirectModeComponent *m_real;
     RateStats m_presentRate{"DirectMode::Present"};
     std::atomic<uint64_t> m_presents{0};
     std::atomic<uint64_t> m_layers{0};
     std::atomic<uint32_t> m_layersThisFrame{0};
+
+    // Swap sets criados pelo driver (para achar formato/flags da textura da cena).
+    std::mutex m_mutexConjuntos;
+    Conjunto m_conjuntos[kMaxConjuntos] = {};
+    uint32_t m_nConjuntos = 0;
+
+    // Estado do frame gen: só a thread do compositor (SubmitLayer/Present/PostPresent) mexe.
+    FrameGen m_fg;
+    bool m_quadroComFG = false;  // decidido no 1º SubmitLayer do quadro
+    Camada m_camadas[kMaxCamadas];
+    uint32_t m_nCamadas = 0;
+    uint32_t m_nUltimas = 0;     // camadas do último quadro real (reenviadas nos gerados)
+    Camada m_ultimas[kMaxCamadas];
+    vr::SharedTextureHandle_t m_sync = 0;
+    bool m_ultimoFoiNovo = false;
+    uint32_t m_repeticoes = 0;
+    double m_tUltimoReal = 0, m_intervaloJogo = 0, m_tUltimoPresent = 0, m_intervaloPresent = 0;
+    uint32_t m_divisor = 2;      // frames por frame real esperados (trava + 1); alfa = k / divisor
+    Conjunto m_saida[2] = {};
+    bool m_temSaida = false, m_saidaUnica = false, m_saidaNt = false;
+    uint32_t m_idxSaida = 0;
+    bool m_pendente = false;     // há um frame gerado na GPU esperando ser entregue
+    uint32_t m_idxPendente = 0, m_kPendente = 0, m_divisorPendente = 0;
+    uint32_t m_falhasSeguidas = 0;  // erros (texturas, NovoFrame, Gerar); zera ao gerar
+    uint32_t m_semEntrega = 0;      // gerado não ficou pronto a tempo; zera ao entregar
+    bool m_desistiu = false;
+    int32_t m_proximoIdx = -1;      // índice que o driver deu para o swap set de saída
+    // O motor inicia numa thread à parte (cria device e compila shaders: centenas de ms
+    // que não podem parar o Present). 0 nada, 1 iniciando, 2 pronto, 3 falhou.
+    std::atomic<int> m_motor{0};
+    std::thread m_inicio;
+    // Destroy* pode vir de outra thread: os handles vão para esta fila e o Present
+    // (única thread que mexe no motor) solta as texturas abertas por eles.
+    static constexpr uint32_t kMaxEsquecer = 32;
+    vr::SharedTextureHandle_t m_esquecer[kMaxEsquecer] = {};
+    uint32_t m_nEsquecer = 0;
+    bool m_esquecerTudo = false;
 };
 
 // ---------------------------------------------------------------------------

@@ -27,7 +27,7 @@
 ---
 
 > [!WARNING]
-> **Projeto em fase alpha / experimental.** A versão atual (`v0.1`) é um **proxy de diagnóstico**: ela ainda **não gera frames**, só observa e registra como o vídeo passa pelo driver. Use por sua conta e risco e sempre faça backup.
+> **Projeto em fase alpha / experimental.** A `v0.2` traz o **primeiro frame gen**, ainda não testado em headset real. Ele vem desligado: você liga no app e, se algo falhar, o proxy volta sozinho a só repassar os frames. Use por sua conta e risco e sempre faça backup.
 
 ## 👻 Por que
 
@@ -62,9 +62,9 @@ Tudo roda dentro do `vrserver.exe` do SteamVR. **O processo do jogo nunca é toc
 |:-:|---|---|
 | ✅ | **1. Diagnóstico** | Proxy transparente que loga caminho de vídeo, taxa de frames, texturas, depth, poses e flags de Motion Smoothing |
 | 🔄 | **2. Caminho dos frames** | Confirmar pelo log o que chega ao driver (frames, poses, tempos) pela interface pública do SteamVR. Abrir o driver só se o log mostrar bloqueio ([plano B](docs/RE_BRIEF.md)) |
-| ⏳ | **3. Captura** | Capturar frames D3D11 + poses e gravar para testes offline |
-| ⏳ | **4. Frame gen offline** | Protótipo de extrapolação com NVIDIA Optical Flow em frames gravados |
-| ⏳ | **5. Injeção** | Inserir frames sintéticos ao vivo quando o jogo perde o vsync |
+| 🧪 | **3. Frame gen ao vivo (experimental)** | Extrapolação na GPU (fluxo por blocos em compute shader, compensando o giro da cabeça), entregue pelo driver nos vsyncs em que o jogo não tem frame ([como funciona](docs/FRAMEGEN.md)) |
+| ⏳ | **4. Ajuste fino** | Com os logs de teste: qualidade (vetores subpixel, bordas), pacing e compatibilidade com outros drivers |
+| ⏳ | **5. Qualidade extra** | Fluxo óptico por hardware (NVIDIA Optical Flow) e uso do depth quando o jogo enviar |
 
 Acompanhe em [Issues](https://github.com/luizhc06/ghostframevr/issues) e [Milestones](https://github.com/luizhc06/ghostframevr/milestones).
 
@@ -90,9 +90,10 @@ Drivers que vêm dentro da pasta do SteamVR (Steam Link, Meta Link) são restaur
 
 1. Baixe o `ghostframeVR-<versão>.exe` da [última release](https://github.com/luizhc06/ghostframevr/releases) e abra. Não precisa instalar nada: a DLL do proxy vai embutida no `.exe`.
 2. Na aba **Instalação**, confira se o alvo detectado é o driver do seu headset (ex.: Pico Connect) e clique em **INSTALAR**. Se o driver estiver em `Program Files`, o Windows pede permissão de administrador. Antes de trocar qualquer arquivo, o app faz backup em `%LOCALAPPDATA%\ghostframeVR\backup`.
-3. Na aba **HUD**, ligue o HUD e, se quiser, **Iniciar com o SteamVR**. Daí em diante é só abrir o SteamVR e jogar.
-4. No headset, vire o pulso para o rosto como quem olha um relógio: o HUD aparece.
-5. Para mandar um teste, use **Gerar relatório** (aba Log) e anexe a pasta numa issue.
+3. Na aba **Desempenho**, ligue o **Frame gen** (Auto escolhe 2× ou 3× pelo que o jogo aguenta).
+4. Na aba **HUD**, ligue o HUD e, se quiser, **Iniciar com o SteamVR**. Daí em diante é só abrir o SteamVR e jogar.
+5. No headset, vire o pulso para o rosto como quem olha um relógio: o HUD mostra frames reais e gerados.
+6. Para mandar um teste, use **Gerar relatório** (aba Log) e anexe a pasta numa issue.
 
 Fechar a janela deixa o app na bandeja, leve, cuidando do HUD. As opções ficam em `%LOCALAPPDATA%\ghostframeVR\ghostframe.ini`.
 
@@ -178,7 +179,7 @@ O ghostframeVR não injeta nada no jogo, não lê nem altera sua memória e roda
 <details>
 <summary><b>Já gera frames?</b></summary>
 
-Ainda não. A `v0.1` é só diagnóstico. A geração de frames vem nas fases 4–5 do roadmap.
+Sim, em versão experimental a partir da `v0.2`. Ligue em **Desempenho → Frame gen** no app. A primeira versão gera os frames por extrapolação na GPU e ainda precisa de ajuste com testes reais; se algo der errado, o proxy volta a só repassar os frames e o log mostra o motivo.
 </details>
 
 <details>

@@ -47,13 +47,29 @@ code { font: 11px var(--mono); color: var(--fraco); }
 .logo .ghost { opacity: .5; }
 .logo.vivo .ghost { opacity: 1; filter: drop-shadow(0 0 5px rgba(0, 240, 255, .6)); }
 
-.abas { display: flex; }
-.abas button {
-  padding: 2px 16px 0; border: 0; border-bottom: 2px solid transparent; background: none; cursor: pointer;
-  color: var(--fraco); font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase;
+.corpo { flex: 1; min-height: 0; display: flex; }
+.abas {
+  flex: none; width: 196px; display: flex; flex-direction: column; gap: 4px; padding: 16px 12px;
+  border-right: 1px solid var(--linha); background: linear-gradient(90deg, rgba(0, 240, 255, .04), transparent);
 }
-.abas button:hover { color: var(--texto); }
-.abas button.ativa { color: var(--ciano); border-bottom-color: var(--ciano); }
+.abas button {
+  display: flex; align-items: center; gap: 12px; padding: 11px 14px; border: 0; background: none; cursor: pointer;
+  color: var(--fraco); font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; text-align: left;
+  clip-path: polygon(0 8px, 8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+}
+.abas button span { font-size: 10px; color: var(--ciano2, #00a9b8); }
+.abas button:hover { color: var(--texto); background: rgba(0, 240, 255, .05); }
+.abas button.ativa { color: #001014; background: linear-gradient(90deg, var(--ciano), #7ff8ff); }
+.abas button.ativa span { color: #003a40; }
+.mascote { margin-top: auto; text-align: center; padding-top: 16px; }
+.mascote .ghost { filter: drop-shadow(0 0 12px rgba(0, 240, 255, .55)); }
+.mascote p { margin: 12px 0 0; font: 11px/1.4 var(--mono); color: var(--fraco); }
+.flutua { animation: flutua 3.2s ease-in-out infinite; }
+@keyframes flutua { 50% { transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .flutua { animation: none; } }
+.aviso-fg { margin: 0 0 12px; padding: 8px 10px; border: 1px dashed var(--alerta, #ffd23f); color: #ffe9a6; font-size: 12px; }
+.aviso-fg[hidden] { display: none; }
+.seg button:disabled { opacity: .35; cursor: not-allowed; }
 
 .janela { margin-left: auto; display: flex; }
 .janela button { width: 46px; border: 0; background: none; color: var(--fraco); cursor: pointer; }
@@ -246,3 +262,4 @@ details .linha { margin-top: 6px; }
 
 .erro-linha { margin: 0 0 8px; color: var(--erro, #ff3d71); font-size: 12px; }
 .erro-linha:empty { display: none; }
+.tag[hidden] { display: none; }

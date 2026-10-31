@@ -1,12 +1,17 @@
 #include "platform.h"
 
 #include <chrono>
+#include <thread>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002 // SDK antigo; Windows 10 1803+
+#endif
 #else
 #include <dlfcn.h>
+#include <unistd.h>
 #endif
 
 namespace gf {
@@ -74,6 +79,41 @@ std::string TempDir() {
 double NowSeconds() {
     using namespace std::chrono;
     return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+void DormirAte(double t) {
+#ifdef _WIN32
+    // Sleep comum arredonda para o tick do sistema (até ~15 ms): timer de alta resolução.
+    static thread_local HANDLE timer =
+        CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+#endif
+    for (;;) {
+        double falta = t - NowSeconds();
+        if (falta <= 0) return;
+        if (falta < 0.0005) {
+            std::this_thread::yield();
+            continue;
+        }
+#ifdef _WIN32
+        if (timer) {
+            LARGE_INTEGER due;
+            due.QuadPart = -static_cast<LONGLONG>((falta - 0.0003) * 1e7); // relativo, em 100 ns
+            if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
+                WaitForSingleObject(timer, 50);
+                continue;
+            }
+        }
+#endif
+        std::this_thread::sleep_for(std::chrono::duration<double>(falta - 0.0003));
+    }
+}
+
+uint32_t ProcessId() {
+#ifdef _WIN32
+    return GetCurrentProcessId();
+#else
+    return static_cast<uint32_t>(getpid());
+#endif
 }
 
 } // namespace gf
