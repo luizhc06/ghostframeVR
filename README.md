@@ -90,10 +90,11 @@ Drivers que vêm dentro da pasta do SteamVR (Steam Link, Meta Link) são restaur
 
 1. Baixe o `ghostframeVR-<versão>.exe` da [última release](https://github.com/luizhc06/ghostframevr/releases) e abra. Não precisa instalar nada: a DLL do proxy vai embutida no `.exe`.
 2. Na aba **Instalação**, confira se o alvo detectado é o driver do seu headset (ex.: Pico Connect) e clique em **INSTALAR**. Se o driver estiver em `Program Files`, o Windows pede permissão de administrador. Antes de trocar qualquer arquivo, o app faz backup em `%LOCALAPPDATA%\ghostframeVR\backup`.
-3. Abra o Pico Connect e o SteamVR. A aba **Painel** mostra se o headset está conectado, o fps que chega nele e os gráficos de frame time.
-4. Para mandar um teste, use **GERAR RELATÓRIO** e anexe a pasta numa issue.
+3. Na aba **HUD**, ligue o HUD e, se quiser, **Iniciar com o SteamVR**. Daí em diante é só abrir o SteamVR e jogar.
+4. No headset, vire o pulso para o rosto como quem olha um relógio: o HUD aparece.
+5. Para mandar um teste, use **Gerar relatório** (aba Log) e anexe a pasta numa issue.
 
-As opções de frame gen ficam em `%LOCALAPPDATA%\ghostframeVR\ghostframe.ini`. A DLL ainda não lê esse arquivo: ele passa a valer quando o frame gen chegar.
+Fechar a janela deixa o app na bandeja, leve, cuidando do HUD. As opções ficam em `%LOCALAPPDATA%\ghostframeVR\ghostframe.ini`.
 
 ### Manual
 
