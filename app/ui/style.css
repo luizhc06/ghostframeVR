@@ -10,6 +10,7 @@
   --texto: #cde4ea;
   --fraco: #62808a;
   --violeta: #a08fff;
+  --gerado: #7dffcf;
   --alerta: #ffc93d;
   --erro: #ff4d6d;
   --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
@@ -122,9 +123,11 @@ label.linha { cursor: pointer; }
 
 .leituras h3 { display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }
 .leituras h3 span { text-transform: none; letter-spacing: .04em; }
-.leituras b { display: block; margin-top: 6px; font: 700 24px/1 var(--mono); color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.leituras b { display: block; margin-top: 6px; font: 700 clamp(17px, 1.9vw, 24px)/1 var(--mono); color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.leituras > div { min-width: 0; }
 .leituras .c-headset b { color: var(--ciano); }
 .leituras .c-jogo b { color: var(--violeta); }
+.leituras .c-gerados b { color: var(--gerado); }
 .leituras.mini { margin-top: 16px; border: 1px solid var(--linha); }
 .leituras.mini b { font-size: 20px; }
 
@@ -137,6 +140,7 @@ label.linha { cursor: pointer; }
 .legenda span::before { content: ""; display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: middle; }
 .l-headset::before { background: var(--ciano); }
 .l-jogo::before { background: var(--violeta); }
+.l-gerados::before { background: var(--gerado); }
 .l-banda::before { height: 8px !important; background: rgba(0, 240, 255, .25); }
 .l-guia::before { background: repeating-linear-gradient(90deg, var(--fraco) 0 3px, transparent 3px 5px); }
 .legenda span:empty { display: none; }
@@ -263,3 +267,5 @@ details .linha { margin-top: 6px; }
 .erro-linha { margin: 0 0 8px; color: var(--erro, #ff3d71); font-size: 12px; }
 .erro-linha:empty { display: none; }
 .tag[hidden] { display: none; }
+.alvo-uso { margin: 10px 0 0; font: 11px var(--mono); color: var(--fraco); word-break: break-all; }
+.alvo-uso:empty { display: none; }

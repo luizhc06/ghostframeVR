@@ -4,6 +4,19 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.2-alpha] - 2026-10-31
+
+### Corrigido
+- Escolher a pasta do driver salva de verdade e mostra o que ficou em uso: o app aceita o caminho entre aspas ("Copiar como caminho" do Explorer), a pasta `bin\win64` ou o próprio `.dll`, valida antes de salvar e mantém o driver escolhido na lista mesmo que ele não tenha sido detectado.
+- O Automático mostra qual driver encontrou.
+- Gravar o `ghostframe.ini` tenta de novo quando o proxy está lendo o arquivo naquele instante.
+
+### Adicionado
+- Painel: frames gerados por segundo (número e linha no gráfico de FPS).
+
+### Removido
+- Opções que ainda não faziam nada: gravação de frames, qualidade e correção por pose (esta sempre está ligada no motor).
+
 ## [0.2.1-alpha] - 2026-10-31
 
 ### Corrigido

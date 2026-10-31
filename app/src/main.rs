@@ -91,11 +91,18 @@ mod win {
             "framegenDisponivel": alvo.as_ref().is_some_and(|d| core::proxy_com_framegen(&d.dll)),
             "processos": { "steamvr": steamvr_aberto() },
             // Só headset por streaming (trackers e utilitários como o Standable ficam de fora),
-            // mais o escolhido à mão, se for outro.
-            "drivers": ovr.drivers.iter()
-                .filter(|d| core::eh_streaming(d) || alvo.as_ref().is_some_and(|a| a.raiz == d.raiz))
-                .map(Driver::json)
-                .collect::<Vec<_>>(),
+            // mais o escolhido à mão, mesmo que não tenha sido detectado: tem de aparecer marcado.
+            "drivers": {
+                let mut l: Vec<Value> = ovr.drivers.iter()
+                    .filter(|d| core::eh_streaming(d) || alvo.as_ref().is_some_and(|a| a.raiz == d.raiz))
+                    .map(Driver::json)
+                    .collect();
+                if let Some(a) = alvo.as_ref().filter(|a| !ovr.drivers.iter().any(|d| d.raiz == a.raiz)) {
+                    l.push(a.json());
+                }
+                l
+            },
+            "alvoAuto": cfg.get("app.alvo").and_then(Value::as_str).unwrap_or("").is_empty(),
             "alvo": alvo.map(|d| { let mut j = d.json(); j["estado"] = core::estado(&d.dll).codigo().into(); j }),
             "log": log,
             "config": cfg,
@@ -116,6 +123,34 @@ mod win {
         cfg.extend(valores);
         fs::create_dir_all(pasta_app()).map_err(|e| e.to_string())?;
         core::gravar_atomico(&arquivo_ini(), &core::config_para_ini(&cfg)).map_err(|e| e.to_string())
+    }
+
+    /// Escolha do driver do headset na janela ("" = automático): valida antes de salvar.
+    #[tauri::command]
+    fn escolher_alvo(caminho: String) -> Result<Value, String> {
+        let raiz = Some(caminho.trim()).filter(|c| !c.is_empty()).map(core::normalizar_raiz);
+        let driver = match &raiz {
+            Some(r) => {
+                let d = core::driver_em(r);
+                if !d.dll.exists() {
+                    return Err(format!(
+                        "Essa pasta não tem um driver do SteamVR (falta bin\\win64\\driver_*.dll): {}. Use a pasta que tem o driver.vrdrivermanifest.",
+                        r.display()
+                    ));
+                }
+                Some(d)
+            }
+            None => core::alvo_padrao(&openvrpaths().drivers).cloned(),
+        };
+        let valor = raiz.map(|r| r.display().to_string()).unwrap_or_default();
+        let mut v = Map::new();
+        v.insert("app.alvo".into(), json!(valor));
+        salvar_config(v)?;
+        let mensagem = match &driver {
+            Some(d) => format!("Driver do headset: {} ({})", core::tipo(&d.nome, &d.raiz).0, d.raiz.display()),
+            None => "Automático: nenhum driver de headset encontrado ainda".into(),
+        };
+        Ok(json!({ "alvo": valor, "mensagem": mensagem }))
     }
 
     fn executar(op: &str, dll: &Path) -> io::Result<String> {
@@ -280,7 +315,7 @@ mod win {
                 }
             }))
             .invoke_handler(tauri::generate_handler![
-                estado, salvar_config, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta
+                estado, salvar_config, escolher_alvo, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta
             ])
             .setup(move |app| {
                 let painel = Arc::new(Mutex::new(companion::Painel::default()));
