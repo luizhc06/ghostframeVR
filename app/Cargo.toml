@@ -14,7 +14,7 @@ sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 
 # A janela só existe no Windows; no Linux compilamos só a lógica (cargo test).
 [target.'cfg(windows)'.dependencies]
-tauri = { version = "2", features = ["custom-protocol"] }
+tauri = { version = "2", features = ["custom-protocol", "tray-icon"] }
 
 [build-dependencies]
 tauri-build = "2"

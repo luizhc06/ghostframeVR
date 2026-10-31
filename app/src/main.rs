@@ -25,6 +25,9 @@ mod win {
     use std::process::Command;
     use std::sync::Mutex;
     use std::{fs, io};
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::{AppHandle, Manager, RunEvent, WebviewWindowBuilder};
 
     static PROXY_DLL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/proxy.dll"));
     const SEM_JANELA: u32 = 0x0800_0000; // CREATE_NO_WINDOW
@@ -203,12 +206,55 @@ mod win {
             let _ = fs::write(&a[4], msg);
             std::process::exit(codigo);
         }
+        // --bandeja: aberto pelo SteamVR (autostart); fica só no ícone, sem WebView.
+        let bandeja = a.iter().any(|x| x == "--bandeja");
         tauri::Builder::default()
             .manage(Mutex::new(sysinfo::System::new()))
             .invoke_handler(tauri::generate_handler![
                 estado, salvar_config, instalar, desinstalar, trava_fps, relatorio, abrir_pasta
             ])
-            .run(tauri::generate_context!())
-            .expect("falha ao abrir a janela do ghostframeVR");
+            .setup(move |app| {
+                let abrir = MenuItem::with_id(app, "abrir", "Abrir", true, None::<&str>)?;
+                let sair = MenuItem::with_id(app, "sair", "Sair", true, None::<&str>)?;
+                TrayIconBuilder::new()
+                    .icon(app.default_window_icon().cloned().ok_or("sem ícone")?)
+                    .tooltip("ghostframeVR")
+                    .menu(&Menu::with_items(app, &[&abrir, &sair])?)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, ev| match ev.id.as_ref() {
+                        "abrir" => abrir_janela(app),
+                        "sair" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|icone, ev| {
+                        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = ev {
+                            abrir_janela(icone.app_handle());
+                        }
+                    })
+                    .build(app)?;
+                if !bandeja {
+                    abrir_janela(app.handle());
+                }
+                Ok(())
+            })
+            .build(tauri::generate_context!())
+            .expect("falha ao iniciar o ghostframeVR")
+            .run(|_, ev| {
+                // Fechar a janela destrói o WebView (é ele que pesa na RAM); o app segue na bandeja.
+                if let RunEvent::ExitRequested { api, code: None, .. } = ev {
+                    api.prevent_exit();
+                }
+            });
+    }
+
+    fn abrir_janela(app: &AppHandle) {
+        if let Some(j) = app.get_webview_window("main") {
+            let _ = j.unminimize();
+            let _ = j.set_focus();
+            return;
+        }
+        if let Some(cfg) = app.config().app.windows.first() {
+            let _ = WebviewWindowBuilder::from_config(app, cfg).and_then(|b| b.build());
+        }
     }
 }

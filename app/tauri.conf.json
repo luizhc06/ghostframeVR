@@ -9,6 +9,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "ghostframeVR",
         "width": 1180,
         "height": 760,

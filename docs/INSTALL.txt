@@ -1,4 +1,4 @@
-ghostframeVR — instalação rápida
+ghostframeVR: instalação rápida
 ================================
 
 ATENÇÃO: versão alpha. Esta versão é um PROXY DE DIAGNÓSTICO: ainda não gera
