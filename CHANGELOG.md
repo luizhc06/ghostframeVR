@@ -4,6 +4,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.1.2-alpha] - 2026-10-31
+
 ### Adicionado
 - App de controle `ghostframeVR.exe` (Tauri 2, tema Y2K preto e ciano):
   - detecta drivers de streaming (externos e os embutidos do SteamVR: Pico Connect, ALVR, Steam Link, Meta Link) e instala, atualiza ou desinstala o proxy com backup e UAC quando precisa;
