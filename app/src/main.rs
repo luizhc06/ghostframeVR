@@ -84,24 +84,24 @@ mod win {
         let steamapps = ovr.config.as_ref().and_then(|c| c.parent()).map(|s| s.join("steamapps"));
         let jogos = vrs.as_ref().map(|v| core::jogos(v, steamapps.as_deref())).unwrap_or_default();
         let steamvr = vrs.map(|v| core::ler_steamvr(&v, &jogo));
+        // Só headset por streaming (trackers e utilitários como o Standable ficam de fora),
+        // mais o escolhido à mão, mesmo que não tenha sido detectado: tem de aparecer marcado.
+        let mut drivers: Vec<Value> = ovr
+            .drivers
+            .iter()
+            .filter(|d| core::eh_streaming(d) || alvo.as_ref().is_some_and(|a| a.raiz == d.raiz))
+            .map(Driver::json)
+            .collect();
+        if let Some(a) = alvo.as_ref().filter(|a| !ovr.drivers.iter().any(|d| d.raiz == a.raiz)) {
+            drivers.push(a.json());
+        }
         let mut r = json!({
             "versao": env!("CARGO_PKG_VERSION"),
             "dllEmbutida": !PROXY_DLL.is_empty(),
             // O proxy instalado já gera frames (instalado mas antigo: atualizar).
             "framegenDisponivel": alvo.as_ref().is_some_and(|d| core::proxy_com_framegen(&d.dll)),
             "processos": { "steamvr": steamvr_aberto() },
-            // Só headset por streaming (trackers e utilitários como o Standable ficam de fora),
-            // mais o escolhido à mão, mesmo que não tenha sido detectado: tem de aparecer marcado.
-            "drivers": {
-                let mut l: Vec<Value> = ovr.drivers.iter()
-                    .filter(|d| core::eh_streaming(d) || alvo.as_ref().is_some_and(|a| a.raiz == d.raiz))
-                    .map(Driver::json)
-                    .collect();
-                if let Some(a) = alvo.as_ref().filter(|a| !ovr.drivers.iter().any(|d| d.raiz == a.raiz)) {
-                    l.push(a.json());
-                }
-                l
-            },
+            "drivers": drivers,
             "alvoAuto": cfg.get("app.alvo").and_then(Value::as_str).unwrap_or("").is_empty(),
             "alvo": alvo.map(|d| { let mut j = d.json(); j["estado"] = core::estado(&d.dll).codigo().into(); j }),
             "log": log,
