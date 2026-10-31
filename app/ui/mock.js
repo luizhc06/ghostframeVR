@@ -5,8 +5,8 @@ if (!window.__TAURI__) {
   const modo = new URLSearchParams(location.search).get("estado") || "instalado";
   const t0 = Date.now() / 1000;
   const cfg = {
-    "framegen.ativo": "1", "framegen.modo": "auto", "framegen.multiplicador": "2", "framegen.qualidade": "1",
-    "framegen.correcao_pose": "1", "gravacao.ativo": "0", "gravacao.segundos": "5",
+    "framegen.ativo": "1", "framegen.modo": "auto", "framegen.multiplicador": "2",
+    
     "hud.ativo": "1", "hud.ancora": "pe", "hud.tamanho": "12", "hud.opacidade": "80",
     "hud.x": "0", "hud.y": "4", "hud.z": "0", "hud.itens": "fps,frames,ft,graf",
     "app.autostart": "0", "hud.olhar": "1", "app.alvo": "", "app.jogo": "steam.app.438100",
@@ -68,6 +68,14 @@ if (!window.__TAURI__) {
     core: {
       invoke: async (cmd, a) => {
         if (cmd === "salvar_config") { Object.assign(cfg, a.valores); return; }
+        if (cmd === "escolher_alvo") {
+          // Como o backend: tira aspas e sobe do .dll / bin\\win64 até a pasta do driver.
+          const c = (a.caminho || "").trim().replace(/^"|"$/g, "").replace(/[\\/]+$/, "")
+            .replace(/[\\/]driver_[^\\/]*\.dll$/i, "").replace(/[\\/]bin[\\/]win64$/i, "");
+          if (c && !/pico|alvr/i.test(c)) throw `Essa pasta não tem um driver do SteamVR (falta bin\\win64\\driver_*.dll): ${c}`;
+          cfg["app.alvo"] = c;
+          return { alvo: c, mensagem: `Driver do headset: ${/alvr/i.test(c) ? "ALVR" : "Pico Connect"} (${c || raiz})` };
+        }
         if (cmd === "vr_set") {
           if (aberto && !conectado) throw "SteamVR aberto, mas ainda não conectou";
           vrCfg[a.chave] = a.valor;
@@ -87,14 +95,14 @@ if (!window.__TAURI__) {
         const poses = serie((t) => [t, 500 + Math.random() * 4]);
         const escala = Math.sqrt(vrCfg.supersampleManual ? vrCfg.supersample : 1);
         return {
-          framegenDisponivel: on, versao: "0.2.0-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
+          framegenDisponivel: on, alvoAuto: !cfg["app.alvo"], versao: "0.2.0-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
           processos: { steamvr: aberto },
-          drivers: modo === "sem-alvo" ? [] : [
+          drivers: modo === "sem-alvo" ? [] : (cfg["app.alvo"] && !/PICO Connect\\resources/.test(cfg["app.alvo"]) ? [{ nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz: cfg["app.alvo"], dll: "" }] : []).concat([
             { nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll" },
             { nome: "alvr_server", rotulo: "ALVR", suporte: "streaming", embutido: false, raiz: "C:\\ALVR", dll: "C:\\ALVR\\bin\\win64\\driver_alvr_server.dll" },
             { nome: "vrlink", rotulo: "Steam Link", suporte: "streaming", embutido: true, raiz: steamvr + "\\vrlink", dll: "" },
-          ],
-          alvo: modo === "sem-alvo" ? null : { nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll", estado: on || modo === "offline" ? "instalado" : modo },
+          ]),
+          alvo: modo === "sem-alvo" ? null : { nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz: cfg["app.alvo"] || raiz, dll: (cfg["app.alvo"] || raiz) + "\\bin\\win64\\driver_pico.dll", estado: on || modo === "offline" ? "instalado" : modo },
           log: on ? {
             caminho: "C:\\Users\\voce\\AppData\\Local\\Temp\\ghostframe.log", idade: 0.8,
             dados: {

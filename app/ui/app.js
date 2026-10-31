@@ -179,14 +179,31 @@ async function previa() {
 $("#btn-instalar").onclick = (e) => chamar("instalar", {}, e.currentTarget);
 $("#btn-desinstalar").onclick = (e) => chamar("desinstalar", {}, e.currentTarget);
 $("#btn-relatorio").onclick = (e) => chamar("relatorio", {}, e.currentTarget);
-$("#drivers").onchange = (ev) => salvar({ "app.alvo": ev.target.value });
-$("#btn-alvo").onclick = () => { const v = $("#alvo-manual").value.trim(); if (v) salvar({ "app.alvo": v }); };
+// O backend valida a pasta (e ajeita aspas, bin\\win64 ou o .dll colado) antes de salvar.
+async function escolherAlvo(caminho, botao) {
+  if (botao) botao.disabled = true;
+  try {
+    const r = await invoke("escolher_alvo", { caminho });
+    config["app.alvo"] = r.alvo;
+    $("#alvo-manual").value = "";
+    toast(r.mensagem);
+  } catch (e) {
+    toast(String(e), true);
+  } finally {
+    if (botao) botao.disabled = false;
+    $("#drivers")._html = null; // redesenha: o rádio clicado pode não ter valido
+    atualizar();
+  }
+}
+$("#drivers").onchange = (ev) => escolherAlvo(ev.target.value);
+$("#btn-alvo").onclick = (ev) => { const v = $("#alvo-manual").value.trim(); if (v) escolherAlvo(v, ev.currentTarget); };
+$("#alvo-manual").onkeydown = (ev) => { if (ev.key === "Enter") $("#btn-alvo").click(); };
 $("#btn-pasta-driver").onclick = () => ultimo?.alvo && invoke("abrir_pasta", { caminho: ultimo.alvo.dll });
 $("#btn-pasta-app").onclick = () => ultimo && invoke("abrir_pasta", { caminho: ultimo.pastaApp });
 $("#btn-pasta-log").onclick = () => ultimo?.log && invoke("abrir_pasta", { caminho: ultimo.log.caminho });
 
 // ---------- gráficos ----------
-const CIANO = "#00f0ff", VIOLETA = "#a08fff";
+const CIANO = "#00f0ff", VIOLETA = "#a08fff", GERADO = "#7dffcf";
 // Redesenha só quando o tamanho ou o último ponto mudam.
 function grafico(canvas, series, { min = 0, max, guia } = {}) {
   const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -325,6 +342,9 @@ function render(e) {
 
   texto($("#m-fps"), fmt(present.at(-1)?.[1]));
   texto($("#m-jogo"), fmt(timing?.fpsJogo));
+  const fgLigado = config["framegen.ativo"] === "1";
+  texto($("#m-gerados"), fgLigado && vivo?.framegen ? fmt(vivo.framegen.gerados) : "--");
+  texto($("#leg-gerados"), serieFG.length ? "gerados" : "");
   texto($("#m-ft"), fmt(present.at(-1)?.[2], 1));
   texto($("#m-cpugpu"), timing ? `${fmt(timing.msCpu, 1)} / ${fmt(timing.msGpu, 1)}` : "--");
   texto($("#m-reproj"), timing ? `${timing.reprojetados} / ${timing.perdidos}` : "--");
@@ -335,6 +355,7 @@ function render(e) {
     grafico($("#graf-fps"), [
       { pts: present.map((p) => [p[0], p[1]]), cor: CIANO },
       { pts: serieJogo, cor: VIOLETA },
+      { pts: serieFG.map((p) => [p[0], p[1]]), cor: GERADO },
     ], { max: Math.max(120, (hz || 0) + 20), guia: hz });
     grafico($("#graf-ft"), [
       { pts: present.map((p) => [p[0], p[2]]), banda: present.map((p) => [p[0], p[3], p[4]]), cor: CIANO },
@@ -391,12 +412,14 @@ function render(e) {
 
   // ----- instalação -----
   html($("#drivers"),
-    `<label><input type="radio" name="alvo" value=""${config["app.alvo"] ? "" : " checked"}><b>Automático</b></label>` +
+    `<label><input type="radio" name="alvo" value=""${config["app.alvo"] ? "" : " checked"}><b>Automático</b>` +
+    `<small>${e.alvoAuto ? (e.alvo ? `usando ${esc(e.alvo.rotulo)}` : "nenhum driver de headset encontrado") : ""}</small></label>` +
     e.drivers.map((dr) => `<label><input type="radio" name="alvo" value="${esc(dr.raiz)}"${config["app.alvo"] === dr.raiz ? " checked" : ""}>
       <b>${esc(dr.rotulo)}</b>${tag(suporte(dr.suporte)[1], suporte(dr.suporte)[0])}${dr.embutido ? tag("SteamVR", "") : ""}
       <small>${esc(dr.raiz)}</small></label>`).join("") +
     (e.drivers.length ? "" : `<p class="nota">Nenhum driver de headset encontrado. Abra o programa do headset e o SteamVR uma vez, ou cole a pasta do driver abaixo.</p>`));
 
+  texto($("#alvo-uso"), e.alvo ? `Em uso: ${e.alvo.rotulo} · ${e.alvo.dll}` : "");
   const [pc, pr] = e.alvo ? PROXY[estado] || ["alerta", estado] : ["", ""];
   classe($("#proxy-tag"), "tag " + pc);
   texto($("#proxy-tag"), pr);

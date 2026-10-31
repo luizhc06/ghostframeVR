@@ -18,8 +18,6 @@ pub const PADROES: &[(&str, &str)] = &[
     ("framegen.ativo", "0"),
     ("framegen.modo", "auto"),
     ("framegen.multiplicador", "2"),
-    ("framegen.qualidade", "1"),
-    ("framegen.correcao_pose", "1"),
     ("hud.ativo", "0"),
     ("hud.ancora", "pe"),
     ("hud.olhar", "1"),
@@ -29,8 +27,6 @@ pub const PADROES: &[(&str, &str)] = &[
     ("hud.y", "0"),
     ("hud.z", "0"),
     ("hud.itens", "fps,frames,ft,graf"),
-    ("gravacao.ativo", "0"),
-    ("gravacao.segundos", "5"),
     ("app.alvo", ""),
     ("app.jogo", VRCHAT),
     ("app.autostart", "0"),
@@ -222,6 +218,23 @@ pub fn alvo_padrao(drivers: &[Driver]) -> Option<&Driver> {
         _ => 9,
     };
     drivers.iter().filter(|d| prioridade(d) < 9).min_by_key(|d| prioridade(d))
+}
+
+/// Pasta do driver a partir do que o usuário colou: tira aspas ("Copiar como caminho"
+/// do Explorer põe), aceita a própria DLL ou a pasta bin\\win64 e sobe até a raiz.
+pub fn normalizar_raiz(texto: &str) -> PathBuf {
+    // Em texto (não PathBuf) para tratar "\\" igual no Windows e nos testes do Linux.
+    let mut t = texto.trim().trim_matches('"').trim().trim_end_matches(['\\', '/']);
+    let sobe = |t: &mut &str, cond: &dyn Fn(&str) -> bool| {
+        let i = t.rfind(['\\', '/']).map(|i| i + 1).unwrap_or(0);
+        if cond(&t[i..].to_ascii_lowercase()) {
+            *t = t[..i].trim_end_matches(['\\', '/']);
+        }
+    };
+    sobe(&mut t, &|n| n.ends_with(".dll") || n == "driver.vrdrivermanifest");
+    sobe(&mut t, &|n| n == "win64");
+    sobe(&mut t, &|n| n == "bin");
+    PathBuf::from(t)
 }
 
 /// O driver escolhido no app (app.alvo) ou o padrão detectado.
@@ -619,7 +632,17 @@ pub fn base64(dados: &[u8]) -> String {
 pub fn gravar_atomico(arquivo: &Path, conteudo: &str) -> io::Result<()> {
     let tmp = arquivo.with_extension("tmp");
     fs::write(&tmp, conteudo)?;
-    fs::rename(&tmp, arquivo)
+    // O proxy (dentro do SteamVR) abre o ini por um instante a cada segundo, e no Windows
+    // o rename falha enquanto ele está aberto: tenta de novo algumas vezes.
+    let mut r = fs::rename(&tmp, arquivo);
+    for _ in 0..10 {
+        if r.is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        r = fs::rename(&tmp, arquivo);
+    }
+    r
 }
 
 // ---------------------------------------------------------------------------
@@ -725,6 +748,20 @@ mod testes {
 
         let r = raizes_no_log("x C:\\Program Files\\PICO Connect\\driver\\bin\\win64\\driver_pico.dll y\nnada aqui\n");
         assert_eq!(r, [PathBuf::from("C:\\Program Files\\PICO Connect\\driver")]);
+    }
+
+    #[test]
+    fn normaliza_o_caminho_colado() {
+        let raiz = PathBuf::from("C:\\Program Files\\PICO Connect\\driver");
+        for colado in [
+            "\"C:\\Program Files\\PICO Connect\\driver\"",
+            "  C:\\Program Files\\PICO Connect\\driver\\ ",
+            "C:\\Program Files\\PICO Connect\\driver\\bin\\win64",
+            "\"C:\\Program Files\\PICO Connect\\driver\\bin\\win64\\driver_pico.dll\"",
+            "C:\\Program Files\\PICO Connect\\driver\\driver.vrdrivermanifest",
+        ] {
+            assert_eq!(normalizar_raiz(colado).to_string_lossy().replace('/', "\\"), raiz.to_string_lossy(), "{colado}");
+        }
     }
 
     #[test]

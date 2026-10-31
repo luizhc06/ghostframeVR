@@ -47,16 +47,17 @@
     <div class="painel faixas leituras">
       <div class="c-headset"><h3>Headset<span>fps</span></h3><b id="m-fps">--</b></div>
       <div class="c-jogo"><h3>Jogo<span>fps</span></h3><b id="m-jogo">--</b></div>
+      <div class="c-gerados"><h3>Gerados<span>fps</span></h3><b id="m-gerados">--</b></div>
       <div><h3>Frame time<span>ms</span></h3><b id="m-ft">--</b></div>
       <div><h3>CPU / GPU<span>ms</span></h3><b id="m-cpugpu">--</b></div>
-      <div><h3>Reproj. / perdidos</h3><b id="m-reproj">--</b></div>
+      <div title="Frames reprojetados / perdidos no último segundo"><h3>Reproj.</h3><b id="m-reproj">--</b></div>
     </div>
 
     <div class="graficos">
       <div class="painel">
         <header>
           <h2>FPS</h2>
-          <div class="legenda"><span class="l-headset">headset</span><span class="l-jogo" id="leg-jogo">jogo</span><span class="l-guia" id="leg-fps-guia"></span></div>
+          <div class="legenda"><span class="l-headset">headset</span><span class="l-jogo" id="leg-jogo">jogo</span><span class="l-gerados" id="leg-gerados">gerados</span><span class="l-guia" id="leg-fps-guia"></span></div>
         </header>
         <div class="plot"><canvas id="graf-fps"></canvas></div>
       </div>
@@ -107,20 +108,6 @@
           </div>
         </div>
 
-        <details>
-          <summary>Avançado</summary>
-          <div class="bloco">
-            <h3>Qualidade</h3>
-            <div class="seg" data-chave="framegen.qualidade">
-              <button data-valor="0">Rápido</button>
-              <button data-valor="1">Equilibrado</button>
-              <button data-valor="2">Qualidade</button>
-            </div>
-          </div>
-          <label class="linha"><span>Correção por pose</span><span class="sw"><input type="checkbox" data-chave="framegen.correcao_pose"><i></i></span></label>
-          <label class="linha"><span>Gravar frames</span><span class="sw"><input type="checkbox" data-chave="gravacao.ativo"><i></i></span></label>
-          <label class="linha"><span>Duração da gravação</span><span><input class="num" type="number" min="1" max="30" data-chave="gravacao.segundos"> s</span></label>
-        </details>
       </div>
 
       <div class="painel">
@@ -201,6 +188,7 @@
     <div class="painel">
       <header><h2 title="O programa do seu headset no PC (Pico Connect, ALVR, Virtual Desktop, Steam Link). É no driver dele que o ghostframe entra.">Driver do headset</h2></header>
       <div id="drivers" class="drivers"></div>
+      <p class="alvo-uso" id="alvo-uso"></p>
       <div class="manual">
         <input type="text" id="alvo-manual" placeholder="Outra pasta de driver">
         <button class="btn" id="btn-alvo">Usar</button>
