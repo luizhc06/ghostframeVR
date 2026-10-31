@@ -22,6 +22,7 @@ frames, só registra em log como o vídeo passa pelo driver. Faça backup.
 6. Abra o app de streaming, conecte, abra o SteamVR e jogue 2–3 minutos.
 
 7. O log fica em bin\win64\ghostframe.log
+   (se a pasta não for gravável, ex.: Program Files, ele vai para %TEMP%\ghostframe.log)
    Mande em: https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml
 
 DESINSTALAR: apague a nossa DLL e renomeie driver_<nome>_real.dll de volta.

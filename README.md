@@ -85,7 +85,7 @@ Acompanhe em [Issues](https://github.com/luizhc06/ghostframevr/issues) e [Milest
 4. Renomeie a DLL original: `driver_<nome>.dll` → `driver_<nome>_real.dll`.
 5. Renomeie a `driver_ghostframe.dll` da release para `driver_<nome>.dll` e copie para a mesma pasta.
 6. Abra o app de streaming, conecte e abra o SteamVR. Jogue 2–3 minutos.
-7. O log fica em `bin\win64\ghostframe.log`.
+7. O log fica em `bin\win64\ghostframe.log` (se a pasta não for gravável, ex.: `Program Files`, vai para `%TEMP%\ghostframe.log`).
 
 ### Desinstalar
 

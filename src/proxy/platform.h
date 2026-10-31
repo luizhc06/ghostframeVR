@@ -19,6 +19,9 @@ std::string RealDriverPath();
 LibHandle LoadLib(const std::string &path, std::string *error);
 void *GetSymbol(LibHandle lib, const char *name);
 
+// Pasta temporária do usuário (%TEMP% no Windows), com barra no final.
+std::string TempDir();
+
 // Tempo monotônico em segundos (alta resolução).
 double NowSeconds();
 

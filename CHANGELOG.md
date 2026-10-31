@@ -4,6 +4,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.1.1-alpha] - 2026-10-31
+
+### Corrigido
+- Log cai para `%TEMP%\ghostframe.log` quando a pasta do driver não é gravável (ex.: `Program Files`).
+
 ## [0.1.0-alpha] - 2026-10-31
 
 Primeira versão pública — **proxy de diagnóstico** (não gera frames ainda).
