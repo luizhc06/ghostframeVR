@@ -119,6 +119,8 @@ private:
     uint32_t m_idxPendente = 0, m_kPendente = 0, m_divisorPendente = 0;
     uint32_t m_falhasSeguidas = 0;
     bool m_desistiu = false;
+    // Destroy* pode vir de outra thread: o motor só é mexido no Present, que consome isto.
+    std::atomic<bool> m_reiniciarMotor{false};
 };
 
 // ---------------------------------------------------------------------------

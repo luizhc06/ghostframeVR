@@ -121,6 +121,7 @@ void DirectModeWrapper::DestroySwapTextureSet(vr::SharedTextureHandle_t h) {
         for (uint32_t i = 0; i < m_nConjuntos; ++i)
             if (m_conjuntos[i].h[0] == h || m_conjuntos[i].h[1] == h || m_conjuntos[i].h[2] == h) m_conjuntos[i] = {};
     }
+    m_reiniciarMotor = true; // um handle novo pode reaproveitar o valor deste
     m_real->DestroySwapTextureSet(h);
 }
 
@@ -131,6 +132,7 @@ void DirectModeWrapper::DestroyAllSwapTextureSets(uint32_t pid) {
         for (uint32_t i = 0; i < m_nConjuntos; ++i)
             if (m_conjuntos[i].pid == pid) m_conjuntos[i] = {};
     }
+    m_reiniciarMotor = true;
     m_real->DestroyAllSwapTextureSets(pid);
 }
 
@@ -319,6 +321,11 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
     }
 
     // >>> frame gen
+    if (m_reiniciarMotor.exchange(false) && m_fg.Iniciado()) {
+        m_fg.Reiniciar();
+        m_pendente = false;
+        m_nUltimas = 0;
+    }
     double agora = NowSeconds();
     if (m_tUltimoPresent > 0) Media(m_intervaloPresent, agora - m_tUltimoPresent);
     m_tUltimoPresent = agora;

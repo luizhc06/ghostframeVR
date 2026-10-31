@@ -14,6 +14,7 @@ add_library(ghostframe_proxy SHARED
     src/proxy/wrappers.cpp
     src/proxy/platform.cpp
     src/proxy/log.cpp
+    src/proxy/config.cpp
     src/proxy/framegen.cpp
     src/proxy/framegen_ref.cpp
 )
@@ -80,4 +81,9 @@ if(NOT WIN32)
 
     add_test(NAME proxy_passthrough
         COMMAND fake_vrserver $<TARGET_FILE:ghostframe_proxy> $<TARGET_FILE:fake_pico_real>)
+    # Frame gen ligado sem GPU (aqui o motor não inicia): tudo tem de continuar chegando ao driver.
+    file(WRITE ${CMAKE_BINARY_DIR}/fg_ligado.ini "; teste\n[framegen]\nativo = 1\n")
+    add_test(NAME proxy_framegen_sem_gpu
+        COMMAND fake_vrserver $<TARGET_FILE:ghostframe_proxy> $<TARGET_FILE:fake_pico_real>)
+    set_tests_properties(proxy_framegen_sem_gpu PROPERTIES ENVIRONMENT "GF_INI=${CMAKE_BINARY_DIR}/fg_ligado.ini")
 endif()
