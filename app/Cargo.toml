@@ -18,6 +18,7 @@ tauri = { version = "2", features = ["custom-protocol", "tray-icon"] }
 
 [build-dependencies]
 tauri-build = "2"
+cc = "1"
 
 [profile.release]
 opt-level = "s"

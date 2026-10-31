@@ -5,8 +5,10 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 mod auto;
+mod companion;
 mod core;
 mod hud;
+mod vr;
 
 #[cfg(not(windows))]
 fn main() {
@@ -21,11 +23,13 @@ fn main() {
 #[cfg(windows)]
 mod win {
     use crate::core::{self, Driver};
+    use crate::{companion, hud, vr};
     use serde_json::{json, Map, Value};
     use std::os::windows::process::CommandExt;
     use std::path::{Path, PathBuf};
     use std::process::Command;
-    use std::sync::Mutex;
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::time::Duration;
     use std::{fs, io};
     use tauri::menu::{Menu, MenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -55,9 +59,17 @@ mod win {
     fn steamvr_aberto() -> bool {
         core::processos(&mut sysinfo::System::new())["steamvr"] == true
     }
+    fn jogo(cfg: &Map<String, Value>) -> String {
+        cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT).to_string()
+    }
+
+    struct Companion {
+        painel: Arc<Mutex<companion::Painel>>,
+        pedidos: Mutex<mpsc::Sender<companion::Gravar>>,
+    }
 
     #[tauri::command]
-    fn estado(sys: tauri::State<Mutex<sysinfo::System>>) -> Value {
+    fn estado(sys: tauri::State<Mutex<sysinfo::System>>, c: tauri::State<Companion>) -> Value {
         let ovr = openvrpaths();
         let cfg = config();
         let alvo = core::alvo(&cfg, &ovr);
@@ -66,12 +78,12 @@ mod win {
             let dados = core::ler_fim(&p, 512 * 1024).map(|t| core::ler_log(&t)).unwrap_or(Value::Null);
             json!({ "caminho": p, "idade": idade, "dados": dados })
         });
-        let jogo = cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT).to_string();
+        let jogo = jogo(&cfg);
         let vrs = vrsettings(&ovr).and_then(|p| core::ler_json(&p));
         let steamapps = ovr.config.as_ref().and_then(|c| c.parent()).map(|s| s.join("steamapps"));
         let jogos = vrs.as_ref().map(|v| core::jogos(v, steamapps.as_deref())).unwrap_or_default();
         let steamvr = vrs.map(|v| core::ler_steamvr(&v, &jogo));
-        json!({
+        let mut r = json!({
             "versao": env!("CARGO_PKG_VERSION"),
             "dllEmbutida": !PROXY_DLL.is_empty(),
             "processos": core::processos(&mut sys.lock().unwrap()),
@@ -82,7 +94,12 @@ mod win {
             "steamvr": steamvr,
             "jogos": jogos,
             "pastaApp": pasta_app(),
-        })
+        });
+        let p = c.painel.lock().unwrap_or_else(|e| e.into_inner());
+        r["vr"] = p.vr.clone();
+        r["auto"] = p.auto.clone();
+        r["hud"] = json!({ "conectado": p.hud_conectado });
+        r
     }
 
     #[tauri::command]
@@ -145,15 +162,61 @@ mod win {
         operar("desinstalar")
     }
 
+    /// Ajuste do SteamVR vindo da janela: ao vivo pelo companion; com o SteamVR
+    /// fechado, direto no steamvr.vrsettings (aberto, ele regravaria o arquivo ao sair).
     #[tauri::command]
-    fn trava_fps(frames: i64) -> Result<(), String> {
-        if steamvr_aberto() {
-            return Err("feche o SteamVR antes: ele regrava o steamvr.vrsettings ao sair".into());
+    fn vr_set(chave: String, valor: Value, c: tauri::State<Companion>) -> Result<(), String> {
+        let jogo = jogo(&config());
+        let num = || valor.as_f64().ok_or("valor inválido");
+        let sim = || valor.as_bool().ok_or("valor inválido");
+        let s = |sec: &str, k: &str, v| (sec.to_string(), k.to_string(), v);
+        let valores = match chave.as_str() {
+            "supersample" => vec![s("steamvr", "supersampleScale", vr::Valor::Float(num()?.clamp(0.2, 5.0) as f32))],
+            "supersampleManual" => vec![s("steamvr", "supersampleManualOverride", vr::Valor::Bool(sim()?))],
+            "motionSmoothing" => vec![s("steamvr", "motionSmoothing", vr::Valor::Bool(sim()?))],
+            "trava" => {
+                let n = vr::Valor::Int(num()?.clamp(0.0, 2.0) as i32);
+                vec![s(&jogo, "framesToThrottle", n), s(&jogo, "additionalFramesToPredict", n)]
+            }
+            _ => return Err(format!("ajuste desconhecido: {chave}")),
+        };
+        let (tx, rx) = mpsc::channel();
+        let pedido = companion::Gravar { valores: valores.clone(), resposta: tx };
+        if c.pedidos.lock().unwrap_or_else(|e| e.into_inner()).send(pedido).is_ok() {
+            match rx.recv_timeout(Duration::from_secs(2)) {
+                Ok(Ok(())) => return Ok(()),
+                Ok(Err(e)) if e != companion::SEM_SESSAO => return Err(e),
+                _ => {}
+            }
         }
-        let p = vrsettings(&openvrpaths()).ok_or("não achei a pasta de config do SteamVR")?;
-        let cfg = config();
-        let jogo = cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT);
-        core::gravar_trava(&p, jogo, frames).map_err(|e| e.to_string())
+        if steamvr_aberto() {
+            return Err("conectando ao SteamVR, tente de novo em alguns segundos".into());
+        }
+        let p = vrsettings(&openvrpaths()).ok_or("não achei a config do SteamVR")?;
+        let lista: Vec<_> = valores
+            .iter()
+            .map(|(sec, k, v)| {
+                let j = match *v {
+                    vr::Valor::Bool(b) => json!(b),
+                    vr::Valor::Int(i) => json!(i),
+                    vr::Valor::Float(f) => json!(f),
+                };
+                (sec.as_str(), k.as_str(), Some(j))
+            })
+            .collect();
+        core::gravar_steamvr(&p, &lista).map_err(|e| e.to_string())
+    }
+
+    /// A imagem exata que o headset vai mostrar (a janela não reimplementa o visual).
+    #[tauri::command]
+    fn hud_previa(c: tauri::State<Companion>) -> Value {
+        let mut m = c.painel.lock().unwrap_or_else(|e| e.into_inner()).metricas.clone();
+        if m.modo.is_empty() {
+            m = companion::exemplo();
+        }
+        let mut hud = hud::Hud::default();
+        let (px, w, h) = hud.desenhar(&m, &companion::itens(&config()));
+        json!({ "largura": w, "altura": h, "rgba": core::base64(px) })
     }
 
     /// Junta log, vrserver.txt e configs numa pasta para anexar no GitHub.
@@ -201,10 +264,14 @@ mod win {
         }
         // --bandeja: aberto pelo SteamVR (autostart); fica só no ícone, sem WebView.
         let bandeja = a.iter().any(|x| x == "--bandeja");
+        let painel = Arc::new(Mutex::new(companion::Painel::default()));
+        let caminhos = companion::Caminhos { app: pasta_app(), openvrpaths: local().join("openvr").join("openvrpaths.vrpath") };
+        let pedidos = Mutex::new(companion::iniciar(caminhos, painel.clone()));
         tauri::Builder::default()
             .manage(Mutex::new(sysinfo::System::new()))
+            .manage(Companion { painel, pedidos })
             .invoke_handler(tauri::generate_handler![
-                estado, salvar_config, instalar, desinstalar, trava_fps, relatorio, abrir_pasta
+                estado, salvar_config, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta
             ])
             .setup(move |app| {
                 let abrir = MenuItem::with_id(app, "abrir", "Abrir", true, None::<&str>)?;

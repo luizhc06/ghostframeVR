@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 /// Vira detecção de verdade quando o proxy anunciar o frame gen (fase 5).
 pub const FRAMEGEN_DISPONIVEL: bool = false;
 const CHAVE_HUD: &str = "io.github.luizhc06.ghostframevr.hud";
+pub const SEM_SESSAO: &str = "SteamVR desconectado";
 
 pub struct Caminhos {
     pub app: PathBuf,
@@ -44,6 +45,23 @@ pub fn itens(cfg: &Map<String, Value>) -> hud::Itens {
     hud::Itens { fps: tem("fps"), frames: tem("frames"), frametime: tem("ft"), latencia: tem("lat"), gpu: tem("gpu"), grafico: tem("graf") }
 }
 
+/// Prévia do HUD sem SteamVR aberto: só para ver o visual.
+pub fn exemplo() -> hud::Metricas {
+    let historico: Vec<f32> = (0..60).map(|i| if (24..30).contains(&i) { 82.0 } else { 90.0 }).collect();
+    hud::Metricas {
+        fps_headset: Some(90.0),
+        fps_jogo: Some(45.0),
+        hz: Some(90.0),
+        reais: Some(45),
+        gerados: Some(45),
+        ms_jogo: Some(21.0),
+        ms_framegen: Some(1.6),
+        latencia_ms: None,
+        modo: "EXEMPLO".into(),
+        historico,
+    }
+}
+
 fn texto<'a>(cfg: &'a Map<String, Value>, chave: &str) -> &'a str {
     cfg.get(chave).and_then(Value::as_str).unwrap_or("")
 }
@@ -75,7 +93,7 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
             Ok(p) => {
                 let r = match &sessao {
                     Some(s) => p.valores.iter().try_for_each(|(sec, k, v)| s.vr.gravar(sec, k, *v)),
-                    None => Err("SteamVR desconectado".into()),
+                    None => Err(SEM_SESSAO.into()),
                 };
                 let _ = p.resposta.send(r);
                 continue;
@@ -114,17 +132,17 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
         let info = s.vr.info_hmd();
         let timing = s.vr.timing();
         let jogo = cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT);
-        let f = |sec: &str, k: &str| match s.vr.ler(sec, k) {
+        let f = |sec: &str, k: &str, t: vr::Tipo| match s.vr.ler(sec, k, t) {
             Some(vr::Valor::Float(x)) => json!(x),
             Some(vr::Valor::Int(x)) => json!(x),
             Some(vr::Valor::Bool(x)) => json!(x),
             None => Value::Null,
         };
-        let trava = f(jogo, "framesToThrottle").as_i64().unwrap_or(0);
+        let trava = f(jogo, "framesToThrottle", vr::Tipo::Int).as_i64().unwrap_or(0);
         let config_vr = json!({
-            "supersample": f("steamvr", "supersampleScale"),
-            "supersampleManual": f("steamvr", "supersampleManualOverride"),
-            "motionSmoothing": f("steamvr", "motionSmoothing"),
+            "supersample": f("steamvr", "supersampleScale", vr::Tipo::Float),
+            "supersampleManual": f("steamvr", "supersampleManualOverride", vr::Tipo::Bool),
+            "motionSmoothing": f("steamvr", "motionSmoothing", vr::Tipo::Bool),
             "trava": trava,
         });
 
