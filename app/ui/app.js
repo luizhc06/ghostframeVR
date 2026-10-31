@@ -107,6 +107,7 @@ $$("#fg-modo button").forEach((b) => (b.onclick = () => salvar(b.dataset.valor =
   ? { "framegen.ativo": "0" }
   : { "framegen.ativo": "1", "framegen.modo": b.dataset.valor })));
 
+let framegenDisponivel = null; // null até o primeiro estado: força aplicar o estado inicial
 const modoFrameGen = () => (config["framegen.ativo"] === "1" ? config["framegen.modo"] : "off");
 
 function preencherConfig() {
@@ -119,8 +120,9 @@ function preencherConfig() {
   $$("[data-item]").forEach((el) => (el.checked = itens.includes(el.dataset.item)));
   const modo = modoFrameGen();
   $$("#fg-modo button").forEach((b) => b.classList.toggle("ativo", b.dataset.valor === modo));
-  $("#fg-auto").hidden = modo !== "auto";
-  $("#fg-manual").hidden = modo !== "manual";
+  // Sem frame gen na DLL: a recomendação continua visível, mas não dá para ligar.
+  $("#fg-auto").hidden = modo !== "auto" && framegenDisponivel;
+  $("#fg-manual").hidden = modo !== "manual" || !framegenDisponivel;
   $(".previa").classList.toggle("off", config["hud.ativo"] !== "1");
 }
 
@@ -257,6 +259,12 @@ function status(id, c, valor) {
 
 function render(e) {
   texto($("#versao"), "v" + e.versao);
+  if (framegenDisponivel !== !!e.framegenDisponivel) {
+    framegenDisponivel = !!e.framegenDisponivel;
+    $$("#fg-modo button, #fg-manual button").forEach((b) => (b.disabled = !framegenDisponivel));
+    $("#fg-aviso").hidden = $("#fg-tag").hidden = framegenDisponivel;
+    preencherConfig();
+  }
   const vivo = e.log && e.log.idade < 6 ? e.log.dados : null;
   const stats = vivo?.stats || {};
   const present = stats["DirectMode::Present"] || stats["VirtualDisplay::Present"] || [];
@@ -279,6 +287,10 @@ function render(e) {
     status("driver", c, e.alvo.suporte === "alvo" ? e.alvo.rotulo : `${e.alvo.rotulo} · ${rotulo}`);
   }
   status("proxy", ...(e.alvo ? PROXY[estado] || ["alerta", estado] : ["erro", "sem alvo"]));
+  const fpsAgora = present.at(-1)?.[1];
+  texto($("#status-curto"), !aberto ? "SteamVR fechado"
+    : fpsAgora != null && vivo ? `${fmt(fpsAgora)} fps no headset`
+    : vr ? `${vr.modelo} conectado` : "SteamVR aberto");
 
   texto($("#m-fps"), fmt(present.at(-1)?.[1]));
   texto($("#m-jogo"), fmt(timing?.fpsJogo));
@@ -302,7 +314,7 @@ function render(e) {
   const a = e.auto;
   texto($("#fg-alvo"), hz ? `${fmt(hz)} Hz` : "--");
   texto($("#fg-rec"), a ? a.recomendado + "×" : "--");
-  texto($("#fg-motivo"), a?.motivo || "");
+  texto($("#fg-motivo"), framegenDisponivel ? a?.motivo || "" : ""); // sem frame gen o aviso já explica
 
   // Ao vivo com o SteamVR conectado; pelo arquivo só com ele fechado (ele regrava ao sair).
   const s = vr?.config ?? e.steamvr;

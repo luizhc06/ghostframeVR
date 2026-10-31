@@ -87,6 +87,7 @@ mod win {
         let mut r = json!({
             "versao": env!("CARGO_PKG_VERSION"),
             "dllEmbutida": !PROXY_DLL.is_empty(),
+            "framegenDisponivel": companion::FRAMEGEN_DISPONIVEL,
             "processos": { "steamvr": steamvr_aberto() },
             "drivers": ovr.drivers.iter().map(Driver::json).collect::<Vec<_>>(),
             "alvo": alvo.map(|d| { let mut j = d.json(); j["estado"] = core::estado(&d.dll).codigo().into(); j }),

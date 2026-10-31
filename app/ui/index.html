@@ -14,19 +14,25 @@
     <b>ghostframe<i>VR</i></b>
     <small id="versao"></small>
   </div>
-  <nav class="abas">
-    <button data-aba="painel" class="ativa">Painel</button>
-    <button data-aba="desempenho">Desempenho</button>
-    <button data-aba="hud">HUD</button>
-    <button data-aba="instalacao">Instalação</button>
-    <button data-aba="log">Log</button>
-  </nav>
   <div class="janela">
     <button id="btn-min" title="Minimizar"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button>
     <button id="btn-max" title="Maximizar"><svg viewBox="0 0 10 10"><path d="M.5.5h9v9h-9z"/></svg></button>
     <button id="btn-fechar" class="x" title="Fechar"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button>
   </div>
 </header>
+
+<div class="corpo">
+<nav class="abas">
+  <button data-aba="painel" class="ativa"><span>01</span>Painel</button>
+  <button data-aba="desempenho"><span>02</span>Desempenho</button>
+  <button data-aba="hud"><span>03</span>HUD</button>
+  <button data-aba="instalacao"><span>04</span>Instalação</button>
+  <button data-aba="log"><span>05</span>Log</button>
+  <div class="mascote">
+    <span class="ghost flutua" data-ghost="5"></span>
+    <p id="status-curto">--</p>
+  </div>
+</nav>
 
 <main>
   <!-- PAINEL -->
@@ -68,8 +74,9 @@
   <section id="aba-desempenho" class="aba">
     <div class="duas">
       <div class="painel">
-        <header><h2>Frame gen</h2><span class="tag alerta">inativo nesta versão</span></header>
+        <header><h2>Frame gen</h2><span class="tag alerta" id="fg-tag">em desenvolvimento</span></header>
         <p class="nota topo">A GPU gera frames extras e alivia a CPU, gargalo em jogos como VRChat.</p>
+        <p class="aviso-fg" id="fg-aviso">Ainda não dá para ligar. Por enquanto o app mede o jogo e mostra o que usaria.</p>
         <div class="seg" id="fg-modo">
           <button data-valor="off">Desligado</button>
           <button data-valor="auto">Auto</button>
@@ -221,6 +228,7 @@
     </div>
   </section>
 </main>
+</div>
 
 <div id="toasts"></div>
 

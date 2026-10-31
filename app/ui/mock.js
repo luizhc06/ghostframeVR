@@ -86,7 +86,7 @@ if (!window.__TAURI__) {
         const poses = serie((t) => [t, 500 + Math.random() * 4]);
         const escala = Math.sqrt(vrCfg.supersampleManual ? vrCfg.supersample : 1);
         return {
-          versao: "0.1.2-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
+          framegenDisponivel: false, versao: "0.1.2-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
           processos: { steamvr: aberto },
           drivers: modo === "sem-alvo" ? [] : [
             { nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll" },
