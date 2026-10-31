@@ -600,9 +600,9 @@ void FrameGen::DefinirProjecao(int olho, const ProjecaoOlho &p) {
 
 bool FrameGen::Travar(vr::SharedTextureHandle_t sync) {
     if (!Iniciado() || m->travado) return false;
-    // O Present não diz o tipo do handle do sync: tenta o legado e depois o NT.
+    // Só handle legado: um NT do sync seria de outro processo (o compositor), e abrir o
+    // valor aqui pegaria um objeto qualquer do vrserver.
     Impl::TexAberta *t = m->Abrir(sync, false);
-    if (!t) t = m->Abrir(sync, true);
     if (!t) return false;
     ComPtr<IDXGIKeyedMutex> km;
     if (FAILED(t->tex.As(&km))) {
@@ -659,9 +659,16 @@ bool FrameGen::NovoFrame(const vr::SharedTextureHandle_t tex[2], const vr::VRTex
     }
 
     m->IniciaMedida(0);
+    for (int e = 0; e < 2; ++e)
+        m->ctx->CopySubresourceRegion(m->olhos[e].ultimo.Get(), 0, 0, 0, 0, src[e], 0, &caixa[e]);
+    // As texturas do jogo já estão copiadas: devolve o sync ao driver antes do cálculo do
+    // movimento (o ReleaseSync faz o driver esperar só pelo que veio antes dele).
+    if (m->travado) {
+        m->travado->ReleaseSync(0);
+        m->travado.Reset();
+    }
     for (int e = 0; e < 2; ++e) {
         Impl::Olho &o = m->olhos[e];
-        m->ctx->CopySubresourceRegion(o.ultimo.Get(), 0, 0, 0, 0, src[e], 0, &caixa[e]);
         m->Tamanhos(o);
         const UINT wq = m->p.luma[0], hq = m->p.luma[1], bw = m->p.blocos[0], bh = m->p.blocos[1];
         const int novo = o.atual ^ 1;
@@ -741,6 +748,12 @@ float FrameGen::MsGpu() const {
     return m->ms[1] + std::max(m->ms[0], 0.0f);
 }
 
+void FrameGen::Esquecer(vr::SharedTextureHandle_t h) {
+    if (!m || !h) return;
+    for (Impl::TexAberta &c : m->cache)
+        if (c.handle == h) c = Impl::TexAberta();
+}
+
 void FrameGen::Reiniciar() {
     if (!m) return;
     for (Impl::Olho &o : m->olhos) o.frames = 0;
@@ -782,6 +795,7 @@ bool FrameGen::Pronto() const { return false; }
 bool FrameGen::Gerar(float, const vr::SharedTextureHandle_t[2], const vr::VRTextureBounds_t[2], bool) { return false; }
 bool FrameGen::Concluido() { return false; }
 float FrameGen::MsGpu() const { return -1; }
+void FrameGen::Esquecer(vr::SharedTextureHandle_t) {}
 void FrameGen::Reiniciar() {}
 
 } // namespace gf

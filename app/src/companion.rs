@@ -73,8 +73,28 @@ struct Sessao {
     /// O pulso segue o índice do controle de quando foi posicionado: reaplica de tempos
     /// em tempos para pegar um controle que reconectou com outro índice.
     posicionado: Instant,
-    /// A trava atual do jogo foi posta pelo app (para o frame gen): tirar quando ele parar.
-    trava_nossa: bool,
+    /// Desde quando o frame gen está ligado (o "esperando" só vale no começo).
+    ligado_desde: Option<Instant>,
+    /// Com a nossa trava, desde quando nenhum frame gerado chega ao driver.
+    sem_entrega: Option<Instant>,
+    /// Travou sem entregar frames: não trava de novo até o frame gen ser religado.
+    fg_bloqueado: bool,
+}
+
+/// Trava que o app pôs para o frame gen, gravada em disco: o SteamVR persiste a trava
+/// no steamvr.vrsettings, então o app tem de lembrar dela mesmo depois de reiniciar.
+fn trava_nossa(app: &std::path::Path) -> Option<(String, i64)> {
+    let v = core::ler_json(&app.join("trava.json"))?;
+    Some((v["jogo"].as_str()?.to_string(), v["valor"].as_i64()?))
+}
+
+fn gravar_trava_nossa(app: &std::path::Path, t: &Option<(String, i64)>) {
+    let arquivo = app.join("trava.json");
+    let _ = match t {
+        Some((jogo, valor)) => std::fs::create_dir_all(app)
+            .and_then(|_| core::gravar_atomico(&arquivo, &json!({ "jogo": jogo, "valor": valor }).to_string())),
+        None => std::fs::remove_file(&arquivo),
+    };
 }
 
 struct Gesto {
@@ -160,7 +180,9 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
                         olhando: false,
                         fade: 0.0,
                         posicionado: Instant::now(),
-                        trava_nossa: false,
+                        ligado_desde: None,
+                        sem_entrega: None,
+                        fg_bloqueado: false,
                     });
                     painel.lock().unwrap_or_else(|e| e.into_inner()).erro = None;
                 }
@@ -210,9 +232,23 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
         let fg = &log["framegen"];
         let fg_num = |k: &str| fg[k].as_f64().map(|x| x as f32);
         let ligado = texto(&cfg, "framegen.ativo") == "1";
-        // Funcionando = ligado e o proxy não desistiu. "esperando" conta: é o começo, e
-        // tirar a trava nesse meio-tempo faria o jogo oscilar.
-        let fg_ok = ligado && matches!(fg["estado"].as_str(), Some("pronto" | "esperando"));
+        let agora = Instant::now();
+        if ligado {
+            s.ligado_desde.get_or_insert(agora);
+        } else {
+            s.ligado_desde = None;
+            s.fg_bloqueado = false;
+        }
+        // Funcionando = o proxy gerou frames ("pronto"). "esperando" só conta nos primeiros
+        // segundos depois de ligar; parado em "esperando" não segura a trava.
+        let no_inicio = s.ligado_desde.is_some_and(|t| agora.duration_since(t) < Duration::from_secs(10));
+        let fg_ok = ligado
+            && !s.fg_bloqueado
+            && match fg["estado"].as_str() {
+                Some("pronto") => true,
+                Some("esperando") => no_inicio,
+                _ => false,
+            };
 
         let decisao = match (&info, &timing) {
             (Some(i), Some(t)) => Some(auto.atualizar(&auto::Entrada {
@@ -223,23 +259,60 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
             })),
             _ => None,
         };
+
         // Trava do jogo para o frame gen: Auto decide; Manual segue o multiplicador escolhido.
         // Sem frame gen funcionando, só desfaz a trava que o próprio app pôs (a do usuário fica).
+        let gravar_trava = |j: &str, t: i64| {
+            let v = vr::Valor::Int(t as i32);
+            s.vr.gravar(j, "framesToThrottle", v).and_then(|_| s.vr.gravar(j, "additionalFramesToPredict", v))
+        };
+        let mut nossa = trava_nossa(&c.app);
+        // Trocou de jogo: a trava que o app pôs no jogo anterior sai primeiro.
+        if let Some((j, _)) = nossa.clone().filter(|(j, _)| j != jogo) {
+            match gravar_trava(&j, 0) {
+                Ok(()) => {
+                    nossa = None;
+                    gravar_trava_nossa(&c.app, &nossa);
+                }
+                Err(e) => erro = Some(format!("Trava de fps: {e}")),
+            }
+        }
         let manual = texto(&cfg, "framegen.multiplicador").parse::<i64>().unwrap_or(2).clamp(2, 3) - 1;
         let alvo_trava = if fg_ok {
             if texto(&cfg, "framegen.modo") == "auto" { decisao.map(|d| i64::from(d.trava)) } else { Some(manual) }
-        } else if s.trava_nossa {
+        } else if nossa.is_some() {
             Some(0)
         } else {
             None
         };
         if let Some(t) = alvo_trava.filter(|t| *t != trava) {
-            let v = vr::Valor::Int(t as i32);
-            let ok = s.vr.gravar(jogo, "framesToThrottle", v).and_then(|_| s.vr.gravar(jogo, "additionalFramesToPredict", v));
-            match ok {
-                Ok(()) => s.trava_nossa = t > 0,
-                Err(e) => erro = Some(format!("Trava de fps: {e}")),
+            // Lembra antes de gravar: se a 2ª escrita falhar, a trava ainda é nossa.
+            let antes = nossa.clone();
+            if t > 0 {
+                gravar_trava_nossa(&c.app, &Some((jogo.to_string(), t)));
             }
+            match gravar_trava(jogo, t) {
+                Ok(()) => {
+                    nossa = (t > 0).then(|| (jogo.to_string(), t));
+                    gravar_trava_nossa(&c.app, &nossa);
+                }
+                Err(e) => {
+                    let lembrar = if t > 0 { Some((jogo.to_string(), t)) } else { antes };
+                    gravar_trava_nossa(&c.app, &lembrar);
+                    erro = Some(format!("Trava de fps: {e}"));
+                }
+            }
+        }
+        // Com a nossa trava, o proxy tem de estar entregando frames: senão o jogo ficaria
+        // a meia taxa sem nada no lugar. ~6 s sem gerados desfaz e bloqueia até religar.
+        let gerados_agora = fg_num("gerados").unwrap_or(0.0);
+        if trava > 0 && nossa.as_ref().is_some_and(|(_, v)| *v > 0) && gerados_agora < 0.5 {
+            if agora.duration_since(*s.sem_entrega.get_or_insert(agora)) > Duration::from_secs(6) {
+                s.fg_bloqueado = true;
+                erro = Some("o frame gen não entregou frames com a trava ligada: trava desfeita (veja o log)".into());
+            }
+        } else {
+            s.sem_entrega = None;
         }
 
         // fps que chega no headset: os Present do compositor mais os gerados que o proxy

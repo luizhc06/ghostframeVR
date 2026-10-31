@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace gf {
@@ -60,6 +61,7 @@ private:
 class DirectModeWrapper final : public vr::IVRDriverDirectModeComponent {
 public:
     explicit DirectModeWrapper(vr::IVRDriverDirectModeComponent *real) : m_real(real) {}
+    ~DirectModeWrapper();
 
     void CreateSwapTextureSet(uint32_t unPid, const SwapTextureSetDesc_t *pDesc, SwapTextureSet_t *pOut) override;
     void DestroySwapTextureSet(vr::SharedTextureHandle_t h) override;
@@ -84,6 +86,9 @@ private:
     bool GarantirSaida(const Camada &cena);
     void LiberarSaida();
     bool Motor();
+    bool MotorOk() const { return m_motor.load() == 2; }
+    void Esquecidos();
+    void Reenviar(const Camada *camadas, uint32_t n, double atraso);
     bool GerarAdiante(uint32_t k);
     bool EntregarGerado(const Camada *camadas, uint32_t n);
     void Falhou(const char *motivo);
@@ -117,10 +122,20 @@ private:
     uint32_t m_idxSaida = 0;
     bool m_pendente = false;     // há um frame gerado na GPU esperando ser entregue
     uint32_t m_idxPendente = 0, m_kPendente = 0, m_divisorPendente = 0;
-    uint32_t m_falhasSeguidas = 0;
+    uint32_t m_falhasSeguidas = 0;  // erros (texturas, NovoFrame, Gerar); zera ao gerar
+    uint32_t m_semEntrega = 0;      // gerado não ficou pronto a tempo; zera ao entregar
     bool m_desistiu = false;
-    // Destroy* pode vir de outra thread: o motor só é mexido no Present, que consome isto.
-    std::atomic<bool> m_reiniciarMotor{false};
+    int32_t m_proximoIdx = -1;      // índice que o driver deu para o swap set de saída
+    // O motor inicia numa thread à parte (cria device e compila shaders: centenas de ms
+    // que não podem parar o Present). 0 nada, 1 iniciando, 2 pronto, 3 falhou.
+    std::atomic<int> m_motor{0};
+    std::thread m_inicio;
+    // Destroy* pode vir de outra thread: os handles vão para esta fila e o Present
+    // (única thread que mexe no motor) solta as texturas abertas por eles.
+    static constexpr uint32_t kMaxEsquecer = 32;
+    vr::SharedTextureHandle_t m_esquecer[kMaxEsquecer] = {};
+    uint32_t m_nEsquecer = 0;
+    bool m_esquecerTudo = false;
 };
 
 // ---------------------------------------------------------------------------

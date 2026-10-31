@@ -41,15 +41,16 @@ std::string CaminhoIni() {
 #endif
 }
 
-std::string LerArquivo(const std::string &caminho) {
-    std::string r;
+// false = não deu para abrir (antivírus, arquivo sendo regravado): o chamador mantém o que tinha.
+bool LerArquivo(const std::string &caminho, std::string &r) {
+    r.clear();
     FILE *f = caminho.empty() ? nullptr : std::fopen(caminho.c_str(), "rb");
-    if (!f) return r;
+    if (!f) return false;
     char buf[4096];
     size_t n;
     while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0 && r.size() < 65536) r.append(buf, n);
     std::fclose(f);
-    return r;
+    return true;
 }
 
 const char *NomeEstado(int e) {
@@ -62,7 +63,10 @@ const char *NomeEstado(int e) {
 }
 
 void LerOpcoes() {
-    bool fg = IniLigado(LerArquivo(CaminhoIni()).c_str(), "framegen", "ativo");
+    // Não abriu (sem ini ou ocupado agora): mantém o que tinha; o padrão é desligado.
+    std::string texto;
+    if (!LerArquivo(CaminhoIni(), texto)) return;
+    bool fg = IniLigado(texto.c_str(), "framegen", "ativo");
     if (fg != g_opcoes.framegen.exchange(fg)) GF_LOG("FRAMEGEN %s pelo ghostframe.ini", fg ? "ligado" : "desligado");
 }
 

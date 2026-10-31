@@ -46,7 +46,8 @@ public:
     bool Travar(vr::SharedTextureHandle_t sync);
     void Destravar();
 
-    // Frame novo do jogo: copia a região `bounds` de cada olho para o histórico.
+    // Frame novo do jogo: copia a região `bounds` de cada olho para o histórico. Se o sync
+    // estiver travado, NovoFrame mesmo o solta logo depois das cópias (Destravar vira no-op).
     // `pose` = mHmdPose do SubmitLayer. `ntHandle` = VRSwapTextureFlag_Shared_NTHandle.
     bool NovoFrame(const vr::SharedTextureHandle_t tex[2], const vr::VRTextureBounds_t bounds[2],
                    const vr::HmdMatrix34_t &pose, bool ntHandle);
@@ -70,6 +71,9 @@ public:
     // abertas pelos handles: chame também quando swap sets forem destruídos, porque um
     // handle novo pode reaproveitar o valor de um antigo.
     void Reiniciar();
+
+    // Solta a textura aberta por esse handle (swap set destruído), sem perder o histórico.
+    void Esquecer(vr::SharedTextureHandle_t h);
 
     struct Impl;
 

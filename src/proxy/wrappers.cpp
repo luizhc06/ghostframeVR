@@ -114,26 +114,74 @@ void DirectModeWrapper::CreateSwapTextureSet(uint32_t pid, const SwapTextureSetD
     }
 }
 
+// Um handle novo pode reaproveitar o valor de um destruído: o motor tem de esquecer a
+// textura aberta por ele. Chamado depois do Destroy real, com m_mutexConjuntos.
+static void Enfileirar(vr::SharedTextureHandle_t *fila, uint32_t &n, uint32_t max, bool &tudo,
+                       const vr::SharedTextureHandle_t (&h)[3]) {
+    for (vr::SharedTextureHandle_t x : h) {
+        if (!x) continue;
+        if (n < max) fila[n++] = x;
+        else tudo = true;
+    }
+}
+
 void DirectModeWrapper::DestroySwapTextureSet(vr::SharedTextureHandle_t h) {
     GF_LOG("DirectMode::DestroySwapTextureSet 0x%llx", (unsigned long long)h);
-    {
-        std::lock_guard<std::mutex> lock(m_mutexConjuntos);
-        for (uint32_t i = 0; i < m_nConjuntos; ++i)
-            if (m_conjuntos[i].h[0] == h || m_conjuntos[i].h[1] == h || m_conjuntos[i].h[2] == h) m_conjuntos[i] = {};
-    }
-    m_reiniciarMotor = true; // um handle novo pode reaproveitar o valor deste
     m_real->DestroySwapTextureSet(h);
+    std::lock_guard<std::mutex> lock(m_mutexConjuntos);
+    bool achou = false;
+    for (uint32_t i = 0; i < m_nConjuntos; ++i) {
+        Conjunto &c = m_conjuntos[i];
+        if (c.h[0] == h || c.h[1] == h || c.h[2] == h) {
+            Enfileirar(m_esquecer, m_nEsquecer, kMaxEsquecer, m_esquecerTudo, c.h);
+            c = {};
+            achou = true;
+        }
+    }
+    if (!achou) {
+        const vr::SharedTextureHandle_t so[3] = {h, 0, 0};
+        Enfileirar(m_esquecer, m_nEsquecer, kMaxEsquecer, m_esquecerTudo, so);
+    }
 }
 
 void DirectModeWrapper::DestroyAllSwapTextureSets(uint32_t pid) {
     GF_LOG("DirectMode::DestroyAllSwapTextureSets pid=%u", pid);
+    m_real->DestroyAllSwapTextureSets(pid);
+    std::lock_guard<std::mutex> lock(m_mutexConjuntos);
+    for (uint32_t i = 0; i < m_nConjuntos; ++i) {
+        Conjunto &c = m_conjuntos[i];
+        if (c.h[0] && c.pid == pid) {
+            Enfileirar(m_esquecer, m_nEsquecer, kMaxEsquecer, m_esquecerTudo, c.h);
+            c = {};
+        }
+    }
+}
+
+// Na thread do Present: solta o que foi destruído. Só zera o histórico se a textura
+// da cena (ou a de saída) estava entre elas.
+void DirectModeWrapper::Esquecidos() {
+    vr::SharedTextureHandle_t fila[kMaxEsquecer];
+    uint32_t n;
+    bool tudo;
     {
         std::lock_guard<std::mutex> lock(m_mutexConjuntos);
-        for (uint32_t i = 0; i < m_nConjuntos; ++i)
-            if (m_conjuntos[i].pid == pid) m_conjuntos[i] = {};
+        n = m_nEsquecer;
+        tudo = m_esquecerTudo;
+        std::memcpy(fila, m_esquecer, n * sizeof(fila[0]));
+        m_nEsquecer = 0;
+        m_esquecerTudo = false;
     }
-    m_reiniciarMotor = true;
-    m_real->DestroyAllSwapTextureSets(pid);
+    if (!n && !tudo) return;
+    bool historico = tudo;
+    for (uint32_t i = 0; i < n; ++i) {
+        if (MotorOk()) m_fg.Esquecer(fila[i]);
+        for (uint32_t e = 0; e < 2 && m_nUltimas; ++e) historico |= fila[i] == m_ultimas[0][e].hTexture;
+    }
+    if (historico) {
+        if (MotorOk()) m_fg.Reiniciar();
+        m_nUltimas = 0;
+        m_pendente = false;
+    }
 }
 
 void DirectModeWrapper::GetNextSwapTextureSetIndex(vr::SharedTextureHandle_t handles[2], uint32_t (*pIndices)[2]) {
@@ -150,6 +198,10 @@ bool DirectModeWrapper::AcharConjunto(vr::SharedTextureHandle_t h, Conjunto *out
         }
     }
     return false;
+}
+
+DirectModeWrapper::~DirectModeWrapper() {
+    if (m_inicio.joinable()) m_inicio.join();
 }
 
 void DirectModeWrapper::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) {
@@ -193,17 +245,24 @@ void DirectModeWrapper::Falhou(const char *motivo) {
 
 bool DirectModeWrapper::Motor() {
     if (m_desistiu) return false;
-    if (!m_fg.Iniciado()) {
+    switch (m_motor.load()) {
+    case 2: return true;
+    case 0:
         g_estatFG.estado = FG_ESPERANDO;
-        if (!m_fg.Iniciar()) {
-            m_desistiu = true; // sem device D3D11 não há o que tentar
-            g_estatFG.estado = FG_FALHOU;
-            GF_LOG("FRAMEGEN indisponível: o motor não iniciou (repassando tudo)");
-            return false;
-        }
-        GF_LOG("FRAMEGEN motor iniciado");
+        m_motor = 1;
+        if (m_inicio.joinable()) m_inicio.join();
+        m_inicio = std::thread([this] {
+            bool ok = m_fg.Iniciar();
+            GF_LOG(ok ? "FRAMEGEN motor iniciado" : "FRAMEGEN indisponível: o motor não iniciou (repassando tudo)");
+            m_motor = ok ? 2 : 3;
+        });
+        return false;
+    case 3:
+        m_desistiu = true; // sem device D3D11 não há o que tentar
+        g_estatFG.estado = FG_FALHOU;
+        return false;
+    default: return false; // iniciando: repassa até ficar pronto
     }
-    return true;
 }
 
 bool DirectModeWrapper::GarantirSaida(const Camada &cena) {
@@ -237,12 +296,17 @@ bool DirectModeWrapper::GarantirSaida(const Camada &cena) {
     m_saidaUnica = unica;
     m_saidaNt = (m_saida[0].flags & vr::VRSwapTextureFlag_Shared_NTHandle) != 0;
     m_idxSaida = 2;
+    m_proximoIdx = -1;
     GF_LOG("FRAMEGEN swap set de saída %ux%u fmt=%u (%s)", a.desc.nWidth, a.desc.nHeight, a.desc.nFormat,
            unica ? "um para os dois olhos" : "um por olho");
     return true;
 }
 
 void DirectModeWrapper::LiberarSaida() {
+    if (m_temSaida && MotorOk()) {
+        for (const Conjunto &c : m_saida)
+            for (vr::SharedTextureHandle_t h : c.h) m_fg.Esquecer(h);
+    }
     if (m_temSaida) {
         m_real->DestroySwapTextureSet(m_saida[0].h[0]);
         if (!m_saidaUnica && m_saida[1].h[0]) m_real->DestroySwapTextureSet(m_saida[1].h[0]);
@@ -255,11 +319,12 @@ void DirectModeWrapper::LiberarSaida() {
 // Enfileira na GPU o k-ésimo frame gerado depois do último real (alfa = k / divisor),
 // para ele já estar pronto quando chegar a vez dele: o Present nunca espera a GPU.
 bool DirectModeWrapper::GerarAdiante(uint32_t k) {
-    if (m_desistiu || !m_fg.Iniciado() || !m_fg.Pronto() || m_nUltimas == 0) return false;
+    if (m_desistiu || !MotorOk() || !m_fg.Pronto() || m_nUltimas == 0) return false;
     if (k >= m_divisor) return false; // nunca além de um intervalo do jogo
     if (!GarantirSaida(m_ultimas[0])) return false;
-    uint32_t idx = (m_idxSaida + 1) % 3; // nunca a textura entregue por último (o encoder pode estar lendo)
-    if (m_pendente && m_idxPendente == idx) idx = (idx + 1) % 3;
+    // O índice que o driver pediu; sem ele, nunca a textura entregue por último.
+    uint32_t idx = m_proximoIdx >= 0 && m_proximoIdx < 3 ? uint32_t(m_proximoIdx) : (m_idxSaida + 1) % 3;
+    if (idx == m_idxSaida) idx = (idx + 1) % 3;
     vr::SharedTextureHandle_t saida[2] = {m_saida[0].h[idx], (m_saidaUnica ? m_saida[0] : m_saida[1]).h[idx]};
     vr::VRTextureBounds_t bounds[2] = {m_ultimas[0][0].bounds, m_ultimas[0][1].bounds};
     if (!m_fg.Gerar(float(k) / float(m_divisor), saida, bounds, m_saidaNt)) {
@@ -270,26 +335,46 @@ bool DirectModeWrapper::GerarAdiante(uint32_t k) {
     m_idxPendente = idx;
     m_kPendente = k;
     m_divisorPendente = m_divisor;
+    m_falhasSeguidas = 0;
     g_estatFG.estado = FG_PRONTO;
     return true;
+}
+
+// Reenvia camadas (o real, quando o gerado não ficou pronto, ou o gerado) com a predição
+// da pose corrigida pelo tempo que já passou desde o quadro real.
+void DirectModeWrapper::Reenviar(const Camada *camadas, uint32_t n, double atraso) {
+    for (uint32_t i = 0; i < n; ++i) {
+        Camada c;
+        std::memcpy(&c, &camadas[i], sizeof(Camada));
+        for (auto &olho : c) {
+            float p = olho.flHmdPosePredictionTimeInSecondsFromNow - float(atraso);
+            olho.flHmdPosePredictionTimeInSecondsFromNow = p > 0 ? p : 0;
+        }
+        m_real->SubmitLayer(c);
+    }
+    m_real->Present(m_sync);
 }
 
 // Entrega o frame gerado pendente no lugar da camada da cena (as outras camadas,
 // como overlays, vão como estão). false = ainda não está pronto: o chamador segue
 // com o original.
 bool DirectModeWrapper::EntregarGerado(const Camada *camadas, uint32_t n) {
-    if (!m_pendente || n == 0 || !m_fg.Concluido()) return false;
+    if (!m_pendente || n == 0 || n > kMaxCamadas || !m_fg.Concluido()) return false;
     m_pendente = false;
-    Camada cena;
-    std::memcpy(&cena, &camadas[0], sizeof(Camada));
-    cena[0].hTexture = m_saida[0].h[m_idxPendente];
-    cena[1].hTexture = (m_saidaUnica ? m_saida[0] : m_saida[1]).h[m_idxPendente];
-    cena[0].hDepthTexture = cena[1].hDepthTexture = 0; // o depth do frame real não vale para o gerado
-    m_real->SubmitLayer(cena);
-    for (uint32_t i = 1; i < n; ++i) m_real->SubmitLayer(camadas[i]);
-    m_real->Present(m_sync);
+    Camada todas[kMaxCamadas];
+    std::memcpy(todas, camadas, n * sizeof(Camada));
+    todas[0][0].hTexture = m_saida[0].h[m_idxPendente];
+    todas[0][1].hTexture = (m_saidaUnica ? m_saida[0] : m_saida[1]).h[m_idxPendente];
+    todas[0][0].hDepthTexture = todas[0][1].hDepthTexture = 0; // o depth do real não vale para o gerado
+    Reenviar(todas, n, NowSeconds() - m_tUltimoPresent);
+    // Como o compositor faz depois de cada Present: o driver diz qual índice usar agora.
+    vr::SharedTextureHandle_t hs[2] = {m_saida[0].h[0], (m_saidaUnica ? m_saida[0] : m_saida[1]).h[0]};
+    uint32_t idx[2] = {3, 3};
+    m_real->GetNextSwapTextureSetIndex(hs, &idx);
+    m_proximoIdx = idx[0] < 3 ? int32_t(idx[0]) : -1;
     m_idxSaida = m_idxPendente;
     m_falhasSeguidas = 0;
+    m_semEntrega = 0;
     g_estatFG.gerados++;
     g_estatFG.msGpu = m_fg.MsGpu();
     return true;
@@ -308,11 +393,12 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
     if (!fg) {
         // Frame gen desligado: repassa como sempre (e solta o que tinha alocado).
         m_ultimoFoiNovo = false;
-        if (!g_opcoes.framegen.load(std::memory_order_relaxed)) {
+        if (!g_opcoes.framegen.load(std::memory_order_relaxed) && (m_temSaida || m_nUltimas || m_desistiu)) {
             if (m_temSaida) LiberarSaida();
-            if (m_fg.Iniciado()) m_fg.Reiniciar();
+            if (MotorOk()) m_fg.Reiniciar();
+            if (m_motor.load() == 3) m_motor = 0; // religar tenta iniciar de novo
             m_desistiu = false;
-            m_falhasSeguidas = 0;
+            m_falhasSeguidas = m_semEntrega = 0;
             m_nUltimas = 0;
             g_estatFG.estado = FG_DESLIGADO;
         }
@@ -321,11 +407,7 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
     }
 
     // >>> frame gen
-    if (m_reiniciarMotor.exchange(false) && m_fg.Iniciado()) {
-        m_fg.Reiniciar();
-        m_pendente = false;
-        m_nUltimas = 0;
-    }
+    Esquecidos();
     double agora = NowSeconds();
     if (m_tUltimoPresent > 0) Media(m_intervaloPresent, agora - m_tUltimoPresent);
     m_tUltimoPresent = agora;
@@ -369,15 +451,19 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
             bool travou = !syncTexture || m_fg.Travar(syncTexture);
             bool ok = travou && m_fg.NovoFrame(tex, bounds, cena[0].mHmdPose, nt);
             if (travou && syncTexture) m_fg.Destravar();
-            if (!ok) Falhou(travou ? "NovoFrame" : "não travou o syncTexture");
-            else if (!m_fg.Pronto()) g_estatFG.estado = FG_ESPERANDO;
+            if (!ok) {
+                Falhou(travou ? "NovoFrame" : "não travou o syncTexture");
+                m_nUltimas = 0; // não extrapola a partir de um histórico velho
+            } else if (!m_fg.Pronto()) {
+                g_estatFG.estado = FG_ESPERANDO;
+            }
         }
     }
 
     for (uint32_t i = 0; i < nc; ++i) m_real->SubmitLayer(m_camadas[i]);
     m_real->Present(syncTexture);
     m_ultimoFoiNovo = novo;
-    if (novo) GerarAdiante(1);
+    if (novo && m_nUltimas) GerarAdiante(1);
 }
 
 void DirectModeWrapper::PostPresent(const Throttling_t *t) {
@@ -391,7 +477,8 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
         return;
     }
     // Trava do SteamVR (jogo a 1/(N+1) da taxa): em vez de o driver esperar N vsyncs de
-    // uma vez, espera um por vez e entrega um frame gerado em cada um.
+    // uma vez, espera um por vez e entrega um frame em cada um. O protocolo fica sempre
+    // Present -> PostPresent: se o gerado não estiver pronto, vai o real de novo.
     m_ultimoFoiNovo = false;
     uint32_t extras = trava < 3 ? trava : 3;
     if (m_divisor != extras + 1) {
@@ -401,20 +488,36 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
             GerarAdiante(1); // dá tempo: a GPU tem um vsync inteiro
         }
     }
+    if (!m_pendente || m_nUltimas == 0) { // aquecendo: nada para entregar ainda
+        m_real->PostPresent(t);
+        return;
+    }
     double periodo = g_periodoVsync.load();
     if (periodo <= 0) periodo = m_intervaloPresent > 0 ? m_intervaloPresent / (extras + 1) : 1.0 / 90.0;
     const Throttling_t um{0, t->nAdditionalFramesToPredict};
     const double t0 = m_tUltimoPresent;
     for (uint32_t k = 1; k <= extras; ++k) {
-        m_real->PostPresent(&um);                   // o driver espera o vsync do quadro anterior
-        DormirAte(t0 + k * periodo - 0.001);         // e o ritmo se mantém se ele voltar cedo
-        if (!EntregarGerado(m_ultimas, m_nUltimas)) {
-            // Não ficou pronto: devolve ao driver o resto da espera original.
-            const Throttling_t resto{extras - k, t->nAdditionalFramesToPredict};
-            m_real->PostPresent(&resto);
+        m_real->PostPresent(&um);           // o driver espera o vsync do quadro anterior
+        DormirAte(t0 + k * periodo - 0.001); // e o ritmo se mantém se ele voltar cedo
+        // O Present extra usa o sync do compositor: se ele não estiver livre, parar aqui
+        // é melhor que arriscar o driver travado esperando por ele.
+        if (!m_fg.Travar(m_sync)) {
+            Falhou("syncTexture ocupado no PostPresent");
             return;
         }
-        if (k < extras) GerarAdiante(k + 1);
+        m_fg.Destravar();
+        if (EntregarGerado(m_ultimas, m_nUltimas)) {
+            if (k < extras) GerarAdiante(k + 1);
+            continue;
+        }
+        // Não ficou pronto: entrega o real de novo (o mesmo que o headset mostraria).
+        Reenviar(m_ultimas, m_nUltimas, NowSeconds() - t0);
+        g_estatFG.falhas++;
+        if (++m_semEntrega >= 120 && !m_desistiu) {
+            m_desistiu = true;
+            g_estatFG.estado = FG_FALHOU;
+            GF_LOG("FRAMEGEN desativado: os frames gerados não ficam prontos a tempo (GPU ocupada?)");
+        }
     }
     m_real->PostPresent(&um);
 }
@@ -596,6 +699,7 @@ vr::EVRInitError ProviderWrapper::Init(vr::IVRDriverContext *ctx) {
     m_context = std::make_unique<DriverContextWrapper>(ctx);
     vr::EVRInitError r = m_real->Init(m_context.get());
     GF_LOG("Provider::Init -> %d", (int)r);
+    if (r != vr::VRInitError_None) PararFundo(); // sem Cleanup depois: a thread não pode ficar
     return r;
 }
 
