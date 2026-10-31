@@ -21,6 +21,18 @@ jobs:
       - name: Testar
         run: ctest --test-dir build --output-on-failure
 
+  app-core:
+    name: App (lógica, Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+      - name: Testar
+        working-directory: app
+        run: cargo test
+
   windows-build:
     name: Build (Windows x64, MSVC)
     runs-on: windows-latest
@@ -38,7 +50,17 @@ jobs:
           $out = & $dumpbin.FullName /exports build\Release\driver_ghostframe.dll
           $out
           if (-not ($out -match 'HmdDriverFactory')) { throw 'HmdDriverFactory não exportado' }
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+      - name: Compilar app (DLL embutida)
+        working-directory: app
+        env:
+          GF_PROXY_DLL: ${{ github.workspace }}\build\Release\driver_ghostframe.dll
+        run: cargo build --release
       - uses: actions/upload-artifact@v4
         with:
-          name: driver_ghostframe-${{ github.sha }}
-          path: build/Release/driver_ghostframe.dll
+          name: ghostframeVR-${{ github.sha }}
+          path: |
+            build/Release/driver_ghostframe.dll
+            app/target/release/ghostframeVR.exe

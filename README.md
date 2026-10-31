@@ -78,6 +78,17 @@ Acompanhe em [Issues](https://github.com/luizhc06/ghostframevr/issues) e [Milest
 > [!IMPORTANT]
 > Feche o **SteamVR** e o app de streaming antes de começar.
 
+### Pelo app (recomendado)
+
+1. Baixe o `ghostframeVR-<versão>.exe` da [última release](https://github.com/luizhc06/ghostframevr/releases) e abra. Não precisa instalar nada: a DLL do proxy vai embutida no `.exe`.
+2. Na aba **Instalação**, confira se o alvo detectado é o driver do Pico Connect e clique em **INSTALAR**. Se o driver estiver em `Program Files`, o Windows pede permissão de administrador. Antes de trocar qualquer arquivo, o app faz backup em `%LOCALAPPDATA%\ghostframeVR\backup`.
+3. Abra o Pico Connect e o SteamVR. A aba **Painel** mostra se o headset está conectado, o fps que chega nele e os gráficos de frame time.
+4. Para mandar um teste, use **GERAR RELATÓRIO** e anexe a pasta numa issue.
+
+As opções de frame gen ficam em `%LOCALAPPDATA%\ghostframeVR\ghostframe.ini`. A DLL ainda não lê esse arquivo: ele passa a valer quando o frame gen chegar.
+
+### Manual
+
 1. Baixe o `.zip` da [última release](https://github.com/luizhc06/ghostframevr/releases) e extraia.
 2. **Ache a pasta do driver.** Abra `%LOCALAPPDATA%\openvr\openvrpaths.vrpath` no Bloco de Notas; em `external_drivers` está a pasta do driver de streaming. A DLL fica em `bin\win64\driver_<nome>.dll`.
    <sub>Alternativa: `Steam\logs\vrserver.txt` lista o caminho de cada driver carregado.</sub>
@@ -120,6 +131,14 @@ cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64.cmake -DCMAKE_BUI
 cmake --build build-win
 ```
 
+**App de controle** (Windows, Rust + WebView2). A lógica é testada no Linux com `cargo test`. Para ajustar a interface sem compilar, abra `app/ui/index.html` num navegador: ele usa dados simulados.
+
+```powershell
+cd app
+$env:GF_PROXY_DLL = "..\build\Release\driver_ghostframe.dll"
+cargo build --release
+```
+
 **Testes** (Linux — simulam SteamVR + driver falso):
 
 ```bash
@@ -131,6 +150,7 @@ cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on
 
 ```
 src/proxy/       driver proxy (HmdDriverFactory + wrappers das interfaces OpenVR)
+app/             app de controle (Tauri 2): instala o proxy, status, gráficos, ghostframe.ini
 tests/           SteamVR e driver de streaming simulados
 docs/            briefing de engenharia reversa, assets
 third_party/     openvr_driver.h (Valve, BSD)

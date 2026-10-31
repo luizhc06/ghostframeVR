@@ -4,6 +4,11 @@ ghostframeVR — instalação rápida
 ATENÇÃO: versão alpha. Esta versão é um PROXY DE DIAGNÓSTICO: ainda não gera
 frames, só registra em log como o vídeo passa pelo driver. Faça backup.
 
+JEITO FÁCIL: abra o ghostframeVR.exe, vá na aba Instalação e clique em
+INSTALAR. Ele acha o driver, faz backup e troca a DLL sozinho.
+
+Jeito manual:
+
 1. Feche o SteamVR e o app de streaming (ex.: Pico Connect).
 
 2. Abra no Bloco de Notas:
