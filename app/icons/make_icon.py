@@ -1,4 +1,4 @@
-"""Gera icon.ico (fantasminha de óculos VR em pixel art) só com a stdlib.
+"""Gera icon.ico e icon.png (fantasma com headset VR, pixel art 32x32) só com a stdlib.
 
 Mesmo desenho do GHOST em ui/app.js. Rodar: python3 make_icon.py
 """
@@ -7,32 +7,49 @@ import zlib
 from pathlib import Path
 
 GHOST = [
-    "................",
-    ".....######.....",
-    "...##########...",
-    "..############..",
-    ".##############.",
-    ".#KKKKKKKKKKKK#.",
-    ".#KwKKKKKKwKKK#.",
-    ".#KKKKKKKKKKKK#.",
-    ".##############.",
-    ".##############.",
-    ".##############.",
-    ".##############.",
-    ".##############.",
-    ".##.###..###.##.",
-    ".#...#....#...#.",
-    "................",
+    "................................",
+    "................................",
+    "..............SSSS..............",
+    "............##SSSSss............",
+    "..........####SSSS##ss..........",
+    "........######SSSS####ss........",
+    ".......#######SSSS#####ss.......",
+    "......########SSSS######ss......",
+    ".....#########SSSS#######ss.....",
+    ".....#########SSSS#######ss.....",
+    "...kkkkkkkkkkkkkkkkkkkkkkkkkk...",
+    "..kKwwwKKKKKKKKKKKKKKKKKKKKKKk..",
+    "..kKKKKKKKKKKKKKKKKKKKKKKKKKKk..",
+    "SSkKKKKKcccccKKKKKKcccccKKKKKkSS",
+    "SSkKKKKKcccccKKKKKKcccccKKKKKkSS",
+    "..kKKKKKKKKKKKKKKKKKKKKKKKKKKk..",
+    "..kKKKKKKKKKKKKKKKKKKKKKKKKKKk..",
+    "...kkkkkkkkkkkkkkkkkkkkkkkkkk...",
+    "....######################ss....",
+    "....######################ss....",
+    "....######################ss....",
+    "....######################ss....",
+    "....######################ss....",
+    "....######################ss....",
+    "....######################ss....",
+    "....######################ss....",
+    "....ssssssssssssssssssssssss....",
+    ".....ssssss..ssssss..ssssss.....",
+    "......ssss....ssss....ssss......",
+    ".......ss......ss......ss.......",
+    "................................",
+    "................................",
 ]
-CORES = {"#": (0, 240, 255, 255), "K": (2, 8, 12, 255), "w": (255, 255, 255, 255), ".": (0, 0, 0, 0)}
+CORES = {"#": (0, 240, 255, 255), "s": (0, 160, 176, 255), "K": (6, 14, 20, 255), "k": (60, 96, 110, 255),
+         "S": (34, 58, 70, 255), "c": (0, 240, 255, 255), "w": (220, 252, 255, 255), ".": (0, 0, 0, 0)}
+N = len(GHOST)
 
 
 def png(tam):
-    escala = tam // 16
     linhas = b""
     for y in range(tam):
-        linha = GHOST[y // escala]
-        linhas += b"\0" + b"".join(bytes(CORES[linha[x // escala]]) for x in range(tam))
+        linha = GHOST[y * N // tam]
+        linhas += b"\0" + b"".join(bytes(CORES[linha[x * N // tam]]) for x in range(tam))
 
     def bloco(tipo, dados):
         return struct.pack(">I", len(dados)) + tipo + dados + struct.pack(">I", zlib.crc32(tipo + dados))
@@ -54,5 +71,5 @@ def ico(tamanhos):
 
 if __name__ == "__main__":
     aqui = Path(__file__).parent
-    (aqui / "icon.ico").write_bytes(ico([16, 32, 48, 256]))
+    (aqui / "icon.ico").write_bytes(ico([16, 32, 48, 64, 256]))
     (aqui / "icon.png").write_bytes(png(256))

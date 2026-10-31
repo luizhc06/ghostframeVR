@@ -92,7 +92,6 @@ if (!window.__TAURI__) {
           drivers: modo === "sem-alvo" ? [] : [
             { nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll" },
             { nome: "alvr_server", rotulo: "ALVR", suporte: "streaming", embutido: false, raiz: "C:\\ALVR", dll: "C:\\ALVR\\bin\\win64\\driver_alvr_server.dll" },
-            { nome: "lighthouse", rotulo: "Index / Vive", suporte: "nativo", embutido: true, raiz: steamvr + "\\lighthouse", dll: "" },
             { nome: "vrlink", rotulo: "Steam Link", suporte: "streaming", embutido: true, raiz: steamvr + "\\vrlink", dll: "" },
           ],
           alvo: modo === "sem-alvo" ? null : { nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll", estado: on || modo === "offline" ? "instalado" : modo },

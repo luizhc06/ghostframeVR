@@ -90,7 +90,12 @@ mod win {
             // O proxy instalado já gera frames (instalado mas antigo: atualizar).
             "framegenDisponivel": alvo.as_ref().is_some_and(|d| core::proxy_com_framegen(&d.dll)),
             "processos": { "steamvr": steamvr_aberto() },
-            "drivers": ovr.drivers.iter().map(Driver::json).collect::<Vec<_>>(),
+            // Só headset por streaming (trackers e utilitários como o Standable ficam de fora),
+            // mais o escolhido à mão, se for outro.
+            "drivers": ovr.drivers.iter()
+                .filter(|d| core::eh_streaming(d) || alvo.as_ref().is_some_and(|a| a.raiz == d.raiz))
+                .map(Driver::json)
+                .collect::<Vec<_>>(),
             "alvo": alvo.map(|d| { let mut j = d.json(); j["estado"] = core::estado(&d.dll).codigo().into(); j }),
             "log": log,
             "config": cfg,
