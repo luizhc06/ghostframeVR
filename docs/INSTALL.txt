@@ -1,0 +1,29 @@
+ghostframeVR — instalação rápida
+================================
+
+ATENÇÃO: versão alpha. Esta versão é um PROXY DE DIAGNÓSTICO: ainda não gera
+frames, só registra em log como o vídeo passa pelo driver. Faça backup.
+
+1. Feche o SteamVR e o app de streaming (ex.: Pico Connect).
+
+2. Abra no Bloco de Notas:
+      %LOCALAPPDATA%\openvr\openvrpaths.vrpath
+   Em "external_drivers" está a pasta do driver de streaming.
+   A DLL fica em:  <pasta>\bin\win64\driver_<nome>.dll
+
+3. Faça BACKUP da pasta bin\win64 inteira.
+
+4. Renomeie a DLL original:
+      driver_<nome>.dll  ->  driver_<nome>_real.dll
+
+5. Renomeie a driver_ghostframe.dll deste pacote para driver_<nome>.dll
+   e copie para a mesma pasta bin\win64.
+
+6. Abra o app de streaming, conecte, abra o SteamVR e jogue 2–3 minutos.
+
+7. O log fica em bin\win64\ghostframe.log
+   Mande em: https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml
+
+DESINSTALAR: apague a nossa DLL e renomeie driver_<nome>_real.dll de volta.
+
+Mais informações: https://github.com/luizhc06/ghostframevr

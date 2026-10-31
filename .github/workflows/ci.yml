@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-tests:
+    name: Testes (Linux, SteamVR simulado)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+      - name: Compilar
+        run: cmake --build build -j
+      - name: Testar
+        run: ctest --test-dir build --output-on-failure
+
+  windows-build:
+    name: Build (Windows x64, MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar
+        run: cmake -S . -B build -A x64
+      - name: Compilar
+        run: cmake --build build --config Release
+      - name: Conferir export HmdDriverFactory
+        shell: pwsh
+        run: |
+          $dumpbin = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio" -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          $out = & $dumpbin.FullName /exports build\Release\driver_ghostframe.dll
+          $out
+          if (-not ($out -match 'HmdDriverFactory')) { throw 'HmdDriverFactory não exportado' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: driver_ghostframe-${{ github.sha }}
+          path: build/Release/driver_ghostframe.dll

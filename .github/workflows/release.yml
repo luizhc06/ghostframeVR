@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publicar release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compilar (MSVC Release)
+        run: |
+          cmake -S . -B build -A x64
+          cmake --build build --config Release
+
+      - name: Montar pacote
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $dir = "ghostframeVR-$tag-win64"
+          New-Item -ItemType Directory $dir | Out-Null
+          Copy-Item build/Release/driver_ghostframe.dll $dir/
+          Copy-Item LICENSE, CHANGELOG.md $dir/
+          Copy-Item docs/INSTALL.txt $dir/LEIA-ME.txt
+          Compress-Archive -Path $dir/* -DestinationPath "$dir.zip"
+          (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash.ToLower() + "  $dir.zip" | Out-File -Encoding ascii "$dir.zip.sha256"
+
+      - name: Notas da release (seção do CHANGELOG)
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern "^## \[$([regex]::Escape($ver))\]").LineNumber
+          if (-not $start) { "Veja o CHANGELOG.md." | Out-File notes.md; exit 0 }
+          $rest = $lines[$start..($lines.Count-1)]
+          $end = ($rest | Select-String -Pattern '^## \[').LineNumber | Select-Object -First 1
+          if ($end) { $rest = $rest[0..($end-2)] }
+          $rest | Out-File -Encoding utf8 notes.md
+
+      - uses: softprops/action-gh-release@v2.0.8
+        with:
+          name: ghostframeVR ${{ github.ref_name }}
+          body_path: notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            ghostframeVR-${{ github.ref_name }}-win64.zip
+            ghostframeVR-${{ github.ref_name }}-win64.zip.sha256
