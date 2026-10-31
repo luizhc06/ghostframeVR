@@ -29,8 +29,13 @@ void LogInit() {
     // Modo append: a DLL é carregada por mais de um processo do SteamVR
     // (vrserver, watchdog...). Cada linha leva o PID.
     g_file = std::fopen(path.c_str(), "a");
+    // Pasta do driver em Program Files não é gravável pelo vrserver (sem admin).
+    if (!g_file) {
+        path = TempDir() + "ghostframe.log";
+        g_file = std::fopen(path.c_str(), "a");
+    }
     g_t0 = NowSeconds();
-    if (g_file) std::fprintf(g_file, "\n===== nova sessao (pid %d) =====\n", (int)GF_GETPID());
+    if (g_file) std::fprintf(g_file, "\n===== nova sessao (pid %d) log=%s =====\n", (int)GF_GETPID(), path.c_str());
 }
 
 void Log(const char *fmt, ...) {

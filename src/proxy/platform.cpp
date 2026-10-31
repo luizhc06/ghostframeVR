@@ -61,6 +61,16 @@ void *GetSymbol(LibHandle lib, const char *name) {
 #endif
 }
 
+std::string TempDir() {
+#ifdef _WIN32
+    char buf[MAX_PATH + 1] = {};
+    DWORD n = GetTempPathA(sizeof(buf), buf);
+    return n ? std::string(buf, n) : std::string(".\\");
+#else
+    return "/tmp/";
+#endif
+}
+
 double NowSeconds() {
     using namespace std::chrono;
     return duration<double>(steady_clock::now().time_since_epoch()).count();
