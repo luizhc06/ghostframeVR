@@ -54,6 +54,8 @@ extern "C" {
     fn gf_overlay_imagem(v: *mut GfVr, h: u64, rgba: *const c_void, larg: u32, alt: u32) -> i32;
     fn gf_overlay_posicionar(v: *mut GfVr, h: u64, ancora: i32, m: *const f32, largura: f32, alpha: f32) -> i32;
     fn gf_overlay_mostrar(v: *mut GfVr, h: u64, visivel: bool) -> i32;
+    fn gf_overlay_alpha(v: *mut GfVr, h: u64, alpha: f32) -> i32;
+    fn gf_vr_poses(v: *mut GfVr, mao: i32, hmd: *mut f32, ctrl: *mut f32) -> bool;
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +234,18 @@ impl Vr {
         Ok(Overlay(h))
     }
 
+    /// Poses (HmdMatrix34_t por linhas) do headset e do controle da âncora de pulso.
+    /// None se a âncora não é de pulso ou se algum dos dois está sem tracking.
+    pub fn poses(&self, ancora: Ancora) -> Option<([f32; 12], [f32; 12])> {
+        let mao = match ancora {
+            Ancora::PulsoEsquerdo => 0,
+            Ancora::PulsoDireito => 1,
+            _ => return None,
+        };
+        let (mut hmd, mut ctrl) = ([0.0; 12], [0.0; 12]);
+        unsafe { gf_vr_poses(self.p, mao, hmd.as_mut_ptr(), ctrl.as_mut_ptr()) }.then_some((hmd, ctrl))
+    }
+
     /// Registra o .vrmanifest (ver `manifesto`) e liga/desliga a abertura junto com o SteamVR.
     pub fn autostart(&self, manifesto: &Path, ligado: bool) -> Result<(), String> {
         let m = cstr(manifesto.to_str().ok_or("caminho do manifesto não é UTF-8")?)?;
@@ -266,6 +280,10 @@ impl Overlay {
             return Err("controle dessa mão não encontrado (desligado?)".into()); // VROverlayError_InvalidTrackedDevice
         }
         vr.checar(b'o', e)
+    }
+
+    pub fn alpha(&self, vr: &Vr, alpha: f32) -> Result<(), String> {
+        vr.checar(b'o', unsafe { gf_overlay_alpha(vr.p, self.0, alpha.clamp(0.0, 1.0)) })
     }
 
     pub fn mostrar(&self, vr: &Vr, visivel: bool) -> Result<(), String> {
@@ -351,7 +369,7 @@ impl Ancora {
     }
 
     /// HmdMatrix34_t por linhas: pose padrão seguida do ajuste do usuário.
-    fn matriz(self, deslocamento: [f32; 3], rotacao_graus: [f32; 3]) -> [f32; 12] {
+    pub fn matriz(self, deslocamento: [f32; 3], rotacao_graus: [f32; 3]) -> [f32; 12] {
         let (p0, r0) = self.padrao();
         let a = rotacao(r0);
         let r = mul(a, rotacao(rotacao_graus));
@@ -364,12 +382,75 @@ impl Ancora {
     }
 }
 
+fn compor(a: &[f32; 12], b: &[f32; 12]) -> [f32; 12] {
+    let mut r = [0.0; 12];
+    for i in 0..3 {
+        for j in 0..4 {
+            r[i * 4 + j] = (0..3).map(|k| a[i * 4 + k] * b[k * 4 + j]).sum::<f32>() + if j == 3 { a[i * 4 + 3] } else { 0.0 };
+        }
+    }
+    r
+}
+
+/// Gesto do relógio (como no XSOverlay): pulso perto, com a face do HUD virada para o
+/// rosto e o headset olhando para ele. `rel` é a pose do HUD no controle (`Ancora::matriz`).
+/// Aparece com 40° de folga e só some passando de 55°: sem piscar na borda.
+pub fn olhando_pulso(hmd: &[f32; 12], ctrl: &[f32; 12], rel: &[f32; 12], visivel: bool) -> bool {
+    let w = compor(ctrl, rel);
+    let para_olho = [hmd[3] - w[3], hmd[7] - w[7], hmd[11] - w[11]];
+    let d = para_olho.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if !(0.05..=0.8).contains(&d) {
+        return false;
+    }
+    let face = (w[2] * para_olho[0] + w[6] * para_olho[1] + w[10] * para_olho[2]) / d;
+    // O headset olha para −Z: cosseno entre a frente dele e a direção do HUD.
+    let olhar = (hmd[2] * para_olho[0] + hmd[6] * para_olho[1] + hmd[10] * para_olho[2]) / d;
+    let limite = if visivel { 55f32 } else { 40f32 }.to_radians().cos();
+    face > limite && olhar > limite
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
 
     fn perto(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-4
+    }
+
+    /// Pose 3×4 a partir de rotação (graus) e posição.
+    fn pose(g: [f32; 3], p: [f32; 3]) -> [f32; 12] {
+        let r = rotacao(g);
+        let mut m = [0.0; 12];
+        for i in 0..3 {
+            m[i * 4..i * 4 + 3].copy_from_slice(&r[i]);
+            m[i * 4 + 3] = p[i];
+        }
+        m
+    }
+
+    #[test]
+    fn gesto_do_relogio() {
+        let id = pose([0.0; 3], [0.0; 3]);
+        // Cabeça a 1,6 m olhando 35° para baixo; HUD 40 cm à frente e abaixo.
+        let hmd = pose([-35.0, 0.0, 0.0], [0.0, 1.6, 0.0]);
+        let pulso = [0.0, 1.35, -0.32];
+        let virado = pose([-38.0, 0.0, 0.0], pulso); // face (+Z) apontando para o rosto
+        assert!(olhando_pulso(&hmd, &virado, &id, false));
+        // Braço abaixado: face para o chão.
+        assert!(!olhando_pulso(&hmd, &pose([-90.0, 0.0, 0.0], pulso), &id, false));
+        // Pulso de costas (face para longe do rosto).
+        assert!(!olhando_pulso(&hmd, &pose([142.0, 0.0, 0.0], pulso), &id, false));
+        // Olhando para o horizonte, pulso fora da visão.
+        assert!(!olhando_pulso(&pose([0.0; 3], [0.0, 1.6, 0.0]), &pose([-80.0, 0.0, 0.0], [0.0, 0.9, -0.1]), &id, false));
+        // Longe demais (braço esticado à frente não é olhar o relógio).
+        assert!(!olhando_pulso(&hmd, &pose([-38.0, 0.0, 0.0], [0.0, 0.9, -0.9]), &id, false));
+        // Histerese: a 48° de desvio aparece só se já estava visível.
+        let borda = pose([-38.0 + 48.0, 0.0, 0.0], pulso);
+        assert!(!olhando_pulso(&hmd, &borda, &id, false) && olhando_pulso(&hmd, &borda, &id, true));
+        // Composição com a pose do HUD no controle: rel desloca e gira junto.
+        let rel = pose([0.0, 0.0, 0.0], [0.0, 0.0, 0.1]);
+        let c = compor(&virado, &rel);
+        assert!(perto(c[3], virado[3]) && perto(c[7] - virado[7], virado[6] * 0.1));
     }
 
     #[test]

@@ -9,7 +9,7 @@ if (!window.__TAURI__) {
     "framegen.correcao_pose": "1", "gravacao.ativo": "0", "gravacao.segundos": "5",
     "hud.ativo": "1", "hud.ancora": "pe", "hud.tamanho": "12", "hud.opacidade": "80",
     "hud.x": "0", "hud.y": "4", "hud.z": "0", "hud.itens": "fps,frames,ft,graf",
-    "app.autostart": "0", "app.alvo": "", "app.jogo": "steam.app.438100",
+    "app.autostart": "0", "hud.olhar": "1", "app.alvo": "", "app.jogo": "steam.app.438100",
   };
   const vrCfg = { supersample: 1.0, supersampleManual: false, motionSmoothing: false, trava: 0 };
   const aberto = modo !== "offline";

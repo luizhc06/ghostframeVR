@@ -20,6 +20,7 @@ pub const PADROES: &[(&str, &str)] = &[
     ("framegen.correcao_pose", "1"),
     ("hud.ativo", "0"),
     ("hud.ancora", "pe"),
+    ("hud.olhar", "1"),
     ("hud.tamanho", "12"),
     ("hud.opacidade", "90"),
     ("hud.x", "0"),

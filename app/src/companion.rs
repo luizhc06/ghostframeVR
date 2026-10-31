@@ -76,6 +76,35 @@ struct Sessao {
     /// Assinatura da última posição aplicada; só reposiciona quando muda.
     pos_hud: String,
     autostart: Option<bool>,
+    /// Gesto do relógio ligado (HUD no pulso que só aparece ao olhar).
+    gesto: Option<Gesto>,
+    olhando: bool,
+    /// 0 = escondido, 1 = na opacidade escolhida.
+    fade: f32,
+}
+
+struct Gesto {
+    ancora: vr::Ancora,
+    rel: [f32; 12],
+    opacidade: f32,
+}
+
+/// Roda ~30×/s com o gesto ligado: só lê duas poses e mexe no alfa quando muda.
+fn gesto(s: &mut Sessao) {
+    let (Some(g), Some(o)) = (&s.gesto, &s.hud) else { return };
+    s.olhando = s.vr.poses(g.ancora).is_some_and(|(h, c)| vr::olhando_pulso(&h, &c, &g.rel, s.olhando));
+    let alvo = if s.olhando { 1.0 } else { 0.0 };
+    let fade = s.fade + (alvo - s.fade).clamp(-0.25, 0.25); // ~130 ms de transição
+    if fade != s.fade {
+        if s.fade == 0.0 {
+            let _ = o.mostrar(&s.vr, true);
+        }
+        let _ = o.alpha(&s.vr, g.opacidade * fade);
+        if fade == 0.0 {
+            let _ = o.mostrar(&s.vr, false);
+        }
+        s.fade = fade;
+    }
 }
 
 fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
@@ -88,8 +117,13 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
     let mut proximo = Instant::now();
 
     loop {
-        // Pedidos da janela são atendidos na hora; o resto roda a 1 Hz (as métricas mudam nesse ritmo).
-        match rx.recv_timeout(proximo.saturating_duration_since(Instant::now())) {
+        // Pedidos da janela são atendidos na hora; o resto roda a 1 Hz (as métricas mudam
+        // nesse ritmo), menos o gesto do relógio, que precisa de ~30 Hz para parecer instantâneo.
+        let mut espera = proximo.saturating_duration_since(Instant::now());
+        if sessao.as_ref().is_some_and(|s| s.gesto.is_some()) {
+            espera = espera.min(Duration::from_millis(33));
+        }
+        match rx.recv_timeout(espera) {
             Ok(p) => {
                 let r = match &sessao {
                     Some(s) => p.valores.iter().try_for_each(|(sec, k, v)| s.vr.gravar(sec, k, *v)),
@@ -100,6 +134,12 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => return,
+        }
+        if let Some(s) = sessao.as_mut() {
+            gesto(s);
+        }
+        if Instant::now() < proximo {
+            continue;
         }
         proximo = Instant::now() + Duration::from_secs(1);
 
@@ -113,7 +153,17 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
             }
             let Some(runtime) = &ovr.runtime else { continue };
             match vr::Vr::conectar(runtime) {
-                Ok(v) => sessao = Some(Sessao { vr: v, hud: None, pos_hud: String::new(), autostart: None }),
+                Ok(v) => {
+                    sessao = Some(Sessao {
+                        vr: v,
+                        hud: None,
+                        pos_hud: String::new(),
+                        autostart: None,
+                        gesto: None,
+                        olhando: false,
+                        fade: 0.0,
+                    })
+                }
                 Err(_) => {
                     proximo = Instant::now() + Duration::from_secs(3);
                     continue;
@@ -156,7 +206,9 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
             })),
             _ => None,
         };
-        if let Some(d) = decisao.filter(|_| texto(&cfg, "framegen.modo") == "auto") {
+        // Só com o frame gen ligado em Auto: desligado, a trava é do usuário (cartão SteamVR).
+        let modo_auto = texto(&cfg, "framegen.ativo") == "1" && texto(&cfg, "framegen.modo") == "auto";
+        if let Some(d) = decisao.filter(|_| modo_auto) {
             if i64::from(d.trava) != trava {
                 let t = vr::Valor::Int(d.trava.into());
                 let _ = s.vr.gravar(jogo, "framesToThrottle", t);
@@ -202,38 +254,49 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
 
         // HUD no headset.
         let hud_ativo = texto(&cfg, "hud.ativo") == "1";
+        let ancora = match texto(&cfg, "hud.ancora") {
+            "pd" => vr::Ancora::PulsoDireito,
+            "visao" => vr::Ancora::Visao,
+            "mundo" => vr::Ancora::Mundo,
+            _ => vr::Ancora::PulsoEsquerdo,
+        };
+        let no_pulso = matches!(ancora, vr::Ancora::PulsoEsquerdo | vr::Ancora::PulsoDireito);
+        let com_gesto = hud_ativo && no_pulso && texto(&cfg, "hud.olhar") == "1";
+        let cm = |k| num(&cfg, k, 0.0) / 100.0;
+        let deslocamento = [cm("hud.x"), cm("hud.y"), cm("hud.z")];
+        let opacidade = num(&cfg, "hud.opacidade", 90.0) / 100.0;
         if hud_ativo && s.hud.is_none() {
             s.hud = s.vr.overlay(CHAVE_HUD, "ghostframeVR").ok();
             s.pos_hud.clear();
+            s.fade = 0.0;
         }
         if let Some(o) = &s.hud {
             if hud_ativo {
                 let (px, w, h) = desenho.desenhar(&metricas, &itens(&cfg));
                 let _ = o.imagem(&s.vr, px, w, h);
-                let pos = ["hud.ancora", "hud.tamanho", "hud.opacidade", "hud.x", "hud.y", "hud.z"].map(|k| texto(&cfg, k)).join("|");
+                let pos = ["hud.ancora", "hud.tamanho", "hud.opacidade", "hud.x", "hud.y", "hud.z", "hud.olhar"]
+                    .map(|k| texto(&cfg, k))
+                    .join("|");
                 if pos != s.pos_hud {
-                    let ancora = match texto(&cfg, "hud.ancora") {
-                        "pd" => vr::Ancora::PulsoDireito,
-                        "visao" => vr::Ancora::Visao,
-                        "mundo" => vr::Ancora::Mundo,
-                        _ => vr::Ancora::PulsoEsquerdo,
-                    };
-                    let cm = |k| num(&cfg, k, 0.0) / 100.0;
-                    let ok = o.posicionar(
-                        &s.vr,
-                        ancora,
-                        num(&cfg, "hud.tamanho", 12.0) / 100.0,
-                        [cm("hud.x"), cm("hud.y"), cm("hud.z")],
-                        [0.0; 3],
-                        num(&cfg, "hud.opacidade", 90.0) / 100.0,
-                    );
+                    let alpha = if com_gesto { opacidade * s.fade } else { opacidade };
+                    let ok = o.posicionar(&s.vr, ancora, num(&cfg, "hud.tamanho", 12.0) / 100.0, deslocamento, [0.0; 3], alpha);
                     // Controle desligado: tenta de novo no próximo segundo.
                     if ok.is_ok() {
                         s.pos_hud = pos;
                     }
                 }
             }
-            let _ = o.mostrar(&s.vr, hud_ativo);
+            // Com o gesto, quem mostra e esconde é o laço rápido.
+            if !com_gesto {
+                let _ = o.mostrar(&s.vr, hud_ativo);
+                s.fade = 0.0;
+            } else if s.fade == 0.0 {
+                let _ = o.mostrar(&s.vr, false);
+            }
+        }
+        s.gesto = com_gesto.then(|| Gesto { ancora, rel: ancora.matriz(deslocamento, [0.0; 3]), opacidade });
+        if !com_gesto {
+            s.olhando = false;
         }
 
         // Iniciar junto com o SteamVR.

@@ -247,6 +247,25 @@ int32_t gf_overlay_posicionar(GfVr *v, uint64_t h, int32_t ancora, const float *
     return o->SetOverlayTransformTrackedDeviceRelative(h, dev, &mat);
 }
 
+// Poses de agora (sem predição) do headset e do controle da mão: 0 esquerda, 1 direita.
+// Mesma origem que o SetOverlayTransformTrackedDeviceRelative usa para o pulso.
+bool gf_vr_poses(GfVr *v, int32_t mao, float *hmd, float *ctrl) {
+    vr::TrackedDevicePose_t p[vr::k_unMaxTrackedDeviceCount];
+    v->sistema->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, p, vr::k_unMaxTrackedDeviceCount);
+    vr::TrackedDeviceIndex_t dev = v->sistema->GetTrackedDeviceIndexForControllerRole(
+        mao == 0 ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand);
+    if (dev >= vr::k_unMaxTrackedDeviceCount || !p[0].bPoseIsValid || !p[dev].bPoseIsValid) return false;
+    for (int i = 0; i < 12; i++) {
+        hmd[i] = p[0].mDeviceToAbsoluteTracking.m[i / 4][i % 4];
+        ctrl[i] = p[dev].mDeviceToAbsoluteTracking.m[i / 4][i % 4];
+    }
+    return true;
+}
+
+int32_t gf_overlay_alpha(GfVr *v, uint64_t h, float alpha) {
+    return v->overlay->SetOverlayAlpha(h, alpha);
+}
+
 int32_t gf_overlay_mostrar(GfVr *v, uint64_t h, bool visivel) {
     return visivel ? v->overlay->ShowOverlay(h) : v->overlay->HideOverlay(h);
 }
