@@ -23,11 +23,11 @@ da Pico. Não mexer em VRChat / Easy Anti-Cheat.
 
 ## Perguntas, em ordem de prioridade
 
-### P1 — Caminho de vídeo
+### P1: Caminho de vídeo
 1. O HMD implementa `IVRVirtualDisplay_002`, `IVRDriverDirectModeComponent_009`, ou ambos? Qual o SteamVR de fato usa?
 2. Strings de versão exatas de todas as interfaces que o driver pede/implementa (procure strings `IVR*_0NN`). Precisamos bater 1:1 com `openvr_driver.h`.
 
-### P2 — O que acontece no `Present`
+### P2: O que acontece no `Present`
 3. Ao receber a textura (`backbufferTextureHandle` ou as do `SubmitLayer`), o driver:
    - abre via `ID3D11Device::OpenSharedResource` / `OpenSharedResource1`?
    - copia para textura própria (`CopyResource`) ou encoda direto?
@@ -35,12 +35,12 @@ da Pico. Não mexer em VRChat / Easy Anti-Cheat.
 5. O encode é síncrono dentro do `Present` ou numa thread/fila separada? Tamanho da fila?
 6. Ele encoda **todo** `Present` ou limita taxa (ex.: só 72/90 por segundo)? Se mandarmos `Present` extras, o que acontece?
 
-### P3 — Pose e timing (crítico para frames sintéticos)
+### P3: Pose e timing (crítico para frames sintéticos)
 7. Como cada frame encodado é associado a uma pose da cabeça? (frameId? timestamp? pose embutida no pacote?) O headset faz timewarp usando essa pose — um frame sintético precisa da pose certa.
 8. De onde vem o timing de vsync (`GetTimeSinceLastVsync`, `VsyncEvent`)? É sincronizado com o headset pela rede?
 9. Implementa `GetFrameTiming` / lê os flags `VRCompositor_ReprojectionMotion_*` (Motion Smoothing)?
 
-### P4 — Proteções e IPC
+### P4: Proteções e IPC
 10. O driver ou o app Pico Connect verifica hash/assinatura das DLLs do driver? O updater restaura arquivos?
 11. Há IPC entre o driver e o app do PC (named pipes, shared memory, sockets locais)? O encode acontece no `vrserver.exe` ou em outro processo?
 12. Há configs ocultas (registro, JSON, flags de linha de comando) relacionadas a frame rate, reprojeção, "smoothing", "ASW", "spacewarp", "interpolation"? Procure strings.
