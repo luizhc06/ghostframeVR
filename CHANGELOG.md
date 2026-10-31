@@ -4,6 +4,17 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.1.2-alpha] - 2026-10-31
+
+### Adicionado
+- App de controle `ghostframeVR.exe` (Tauri 2, tema Y2K preto e ciano):
+  - detecta drivers de streaming (externos e os embutidos do SteamVR: Pico Connect, ALVR, Steam Link, Meta Link) e instala, atualiza ou desinstala o proxy com backup e UAC quando precisa;
+  - avisa quando uma atualização do driver removeu o proxy;
+  - mostra o status do SteamVR, do headset, do driver e do proxy, com gráficos de fps e frame time lidos do `ghostframe.log`;
+  - guarda as opções de frame gen em `%LOCALAPPDATA%\ghostframeVR\ghostframe.ini` (a DLL ainda não lê);
+  - trava experimental de fps por jogo via throttling por app do SteamVR (qualquer jogo que o SteamVR conhece);
+  - gera relatório de teste.
+
 ## [0.1.1-alpha] - 2026-10-31
 
 ### Corrigido

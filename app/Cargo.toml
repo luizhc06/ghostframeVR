@@ -1,0 +1,26 @@
+[package]
+name = "ghostframevr"
+version = "0.1.2-alpha"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "ghostframeVR"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+
+# A janela só existe no Windows; no Linux compilamos só a lógica (cargo test).
+[target.'cfg(windows)'.dependencies]
+tauri = { version = "2", features = ["custom-protocol"] }
+
+[build-dependencies]
+tauri-build = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

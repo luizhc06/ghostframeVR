@@ -19,13 +19,24 @@ jobs:
           cmake -S . -B build -A x64
           cmake --build build --config Release
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+
+      - name: Compilar app (DLL embutida)
+        working-directory: app
+        env:
+          GF_PROXY_DLL: ${{ github.workspace }}\build\Release\driver_ghostframe.dll
+        run: cargo build --release
+
       - name: Montar pacote
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
           $dir = "ghostframeVR-$tag-win64"
           New-Item -ItemType Directory $dir | Out-Null
-          Copy-Item build/Release/driver_ghostframe.dll $dir/
+          Copy-Item build/Release/driver_ghostframe.dll, app/target/release/ghostframeVR.exe $dir/
+          Copy-Item app/target/release/ghostframeVR.exe "ghostframeVR-$tag.exe"
           Copy-Item LICENSE, CHANGELOG.md $dir/
           Copy-Item docs/INSTALL.txt $dir/LEIA-ME.txt
           Compress-Archive -Path $dir/* -DestinationPath "$dir.zip"
@@ -51,3 +62,4 @@ jobs:
           files: |
             ghostframeVR-${{ github.ref_name }}-win64.zip
             ghostframeVR-${{ github.ref_name }}-win64.zip.sha256
+            ghostframeVR-${{ github.ref_name }}.exe

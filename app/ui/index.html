@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ghostframeVR</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="fx-grade"></div>
+<div class="fx-scan"></div>
+
+<header class="titulo" data-tauri-drag-region>
+  <div class="logo" data-tauri-drag-region>
+    <span class="ghost" data-ghost="2"></span>
+    <b class="cromo">ghostframe</b><i>VR</i>
+    <span class="versao" id="versao">v—</span>
+  </div>
+  <div class="sys" data-tauri-drag-region><span class="led" id="led-sys"></span><span id="sys-texto">SYS//INIT</span></div>
+  <div class="janela">
+    <button id="btn-min" title="Minimizar">&#x2014;</button>
+    <button id="btn-max" title="Maximizar">&#x25A2;</button>
+    <button id="btn-fechar" class="x" title="Fechar">&#x2715;</button>
+  </div>
+</header>
+
+<nav class="menu">
+  <button data-aba="painel" class="ativa"><span>01</span>PAINEL</button>
+  <button data-aba="framegen"><span>02</span>FRAME GEN</button>
+  <button data-aba="otimizacao"><span>03</span>OTIMIZAÇÃO</button>
+  <button data-aba="instalacao"><span>04</span>INSTALAÇÃO</button>
+  <button data-aba="log"><span>05</span>LOG</button>
+  <div class="mascote">
+    <span class="brilho b1">&#x2726;</span><span class="brilho b2">&#x2727;</span><span class="brilho b3">&#x2726;</span>
+    <div class="ghost flutua" data-ghost="5"></div>
+    <p id="fala">boo. procurando o headset...</p>
+  </div>
+</nav>
+
+<main>
+  <!-- ============ PAINEL ============ -->
+  <section id="aba-painel" class="aba ativa">
+    <div class="cards">
+      <div class="card" id="st-steamvr"><span class="led"></span><h3>STEAMVR</h3><p>—</p></div>
+      <div class="card" id="st-headset"><span class="led"></span><h3>HEADSET</h3><p>—</p></div>
+      <div class="card" id="st-driver"><span class="led"></span><h3>DRIVER</h3><p>—</p></div>
+      <div class="card" id="st-proxy"><span class="led"></span><h3>PROXY</h3><p>—</p></div>
+    </div>
+
+    <div class="metricas">
+      <div class="painel metrica"><h2>FPS</h2><div class="numero" id="m-fps">--</div><small>no headset</small></div>
+      <div class="painel metrica"><h2>TRACKING</h2><div class="numero" id="m-pose">--</div><small>Hz</small></div>
+      <div class="painel metrica"><h2>FRAME TIME</h2><div class="numero" id="m-ft">--</div><small id="m-ft-sub">ms</small></div>
+      <div class="painel metrica"><h2>REAL / SINT.</h2><div class="numero menor" id="m-ratio">100 / 0</div><small>%</small></div>
+    </div>
+
+    <div class="graficos">
+      <div class="painel">
+        <h2>FPS</h2>
+        <canvas id="graf-fps"></canvas>
+        <div class="legenda"><span class="c1">headset</span><span class="c2">tracking ÷ 10</span></div>
+      </div>
+      <div class="painel">
+        <h2>FRAME TIME <em>ms</em></h2>
+        <canvas id="graf-ft"></canvas>
+        <div class="legenda"><span class="c1">média</span><span class="c3">mín–máx</span><span class="c4">72 Hz</span></div>
+      </div>
+    </div>
+
+    <div class="painel">
+      <h2>SESSÃO</h2>
+      <dl class="sessao" id="sessao"></dl>
+    </div>
+  </section>
+
+  <!-- ============ FRAME GEN ============ -->
+  <section id="aba-framegen" class="aba">
+    <div class="aviso"><b>PRÉVIA</b> ainda sem efeito: a DLL v0.1 só observa. As opções ficam salvas.</div>
+
+    <div class="painel destaque">
+      <div class="linha-sw" title="Extrapolação: usa só frames passados + a pose mais recente. Não segura frame, não soma atraso.">
+        <h2>GHOSTFRAME</h2>
+        <label class="sw grande"><input type="checkbox" data-chave="framegen.ativo"><span></span></label>
+      </div>
+    </div>
+
+    <div class="duas">
+      <div class="painel">
+        <h2>MULTIPLICADOR</h2>
+        <div class="seg" data-chave="framegen.multiplicador">
+          <button data-valor="2" title="1 sintético por frame real. O mais limpo."><b>2×</b></button>
+          <button data-valor="3" title="2 sintéticos por frame real. Mais artefato em movimento rápido."><b>3×</b></button>
+        </div>
+      </div>
+      <div class="painel">
+        <h2>QUALIDADE</h2>
+        <div class="seg" data-chave="framegen.qualidade">
+          <button data-valor="0"><b>RÁPIDO</b></button>
+          <button data-valor="1"><b>EQUILIBRADO</b></button>
+          <button data-valor="2"><b>QUALIDADE</b></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="painel">
+      <h2>CADÊNCIA <em id="cadencia-texto"></em></h2>
+      <div class="cadencia" id="cadencia"></div>
+      <div class="legenda"><span class="c1">real</span><span class="c5">sintético</span></div>
+    </div>
+
+    <div class="duas">
+      <div class="painel">
+        <div class="linha-sw" title="Reprojeta o frame gerado pela pose atual da cabeça."><h2>CORREÇÃO POR POSE</h2>
+          <label class="sw"><input type="checkbox" data-chave="framegen.correcao_pose"><span></span></label></div>
+        <div class="linha-sw" title="Contador de frames reais vs sintéticos na visão."><h2>HUD NO HEADSET</h2>
+          <label class="sw"><input type="checkbox" data-chave="hud.ativo"><span></span></label></div>
+      </div>
+      <div class="painel">
+        <div class="linha-sw" title="Grava cor, depth, pose e tempos para testes offline."><h2>GRAVAÇÃO</h2>
+          <label class="sw"><input type="checkbox" data-chave="gravacao.ativo"><span></span></label></div>
+        <div class="linha-sw"><h2>SEGUNDOS</h2>
+          <input class="num" type="number" min="1" max="30" data-chave="gravacao.segundos"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OTIMIZAÇÃO ============ -->
+  <section id="aba-otimizacao" class="aba">
+    <div class="painel destaque">
+      <h2>TRAVA DE FPS <em>experimental</em></h2>
+      <div class="manual">
+        <select id="jogo" title="Jogos que o SteamVR já conhece"></select>
+      </div>
+      <div class="seg" id="trava" title="Ritmo fixo para o frame gen: o jogo travado numa fração da taxa do headset.">
+        <button data-valor="0"><b>LIVRE</b></button>
+        <button data-valor="1"><b>½</b><small>36 @72 · 45 @90</small></button>
+        <button data-valor="2"><b>⅓</b><small>24 @72 · 30 @90</small></button>
+      </div>
+      <p class="nota" id="trava-nota"></p>
+    </div>
+
+    <div class="painel">
+      <h2>STEAMVR</h2>
+      <dl class="sessao" id="steamvr-info"></dl>
+    </div>
+  </section>
+
+  <!-- ============ INSTALAÇÃO ============ -->
+  <section id="aba-instalacao" class="aba">
+    <div class="painel destaque">
+      <h2>ALVO</h2>
+      <div id="drivers" class="drivers"></div>
+      <div class="manual">
+        <input type="text" id="alvo-manual" placeholder="outra pasta de driver (com driver.vrdrivermanifest)">
+        <button class="btn" id="btn-alvo">USAR</button>
+      </div>
+    </div>
+
+    <div class="duas">
+      <div class="painel">
+        <h2>PROXY <span id="proxy-tag"></span></h2>
+        <p class="nota" id="proxy-texto"></p>
+        <div class="botoes">
+          <button class="btn forte" id="btn-instalar" title="Faz backup e troca a DLL. Pede admin se precisar.">INSTALAR</button>
+          <button class="btn" id="btn-desinstalar">DESINSTALAR</button>
+        </div>
+        <div class="botoes">
+          <button class="btn fino" id="btn-pasta-driver">PASTA DO DRIVER</button>
+          <button class="btn fino" id="btn-pasta-app">BACKUPS</button>
+        </div>
+      </div>
+      <div class="painel">
+        <h2>RELATÓRIO</h2>
+        <div class="botoes"><button class="btn forte" id="btn-relatorio" title="Logs e configs numa pasta, para anexar numa issue. Sem arquivos do driver.">GERAR</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LOG ============ -->
+  <section id="aba-log" class="aba">
+    <div class="painel">
+      <h2>LOG <em id="log-caminho"></em></h2>
+      <div class="botoes"><button class="btn fino" id="btn-pasta-log">ABRIR PASTA</button></div>
+      <ul class="avisos" id="avisos"></ul>
+      <pre class="terminal" id="terminal">sem log ainda.</pre>
+    </div>
+  </section>
+</main>
+
+<footer class="rodape">
+  <div class="ticker"><span id="ticker"></span></div>
+  <span id="relogio">--:--:--</span>
+</footer>
+
+<div id="toasts"></div>
+
+<script src="mock.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
