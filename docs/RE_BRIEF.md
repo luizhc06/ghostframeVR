@@ -36,7 +36,7 @@ da Pico. Não mexer em VRChat / Easy Anti-Cheat.
 6. Ele encoda **todo** `Present` ou limita taxa (ex.: só 72/90 por segundo)? Se mandarmos `Present` extras, o que acontece?
 
 ### P3: Pose e timing (crítico para frames sintéticos)
-7. Como cada frame encodado é associado a uma pose da cabeça? (frameId? timestamp? pose embutida no pacote?) O headset faz timewarp usando essa pose — um frame sintético precisa da pose certa.
+7. Como cada frame encodado é associado a uma pose da cabeça? (frameId? timestamp? pose embutida no pacote?) O headset faz timewarp usando essa pose: um frame sintético precisa da pose certa.
 8. De onde vem o timing de vsync (`GetTimeSinceLastVsync`, `VsyncEvent`)? É sincronizado com o headset pela rede?
 9. Implementa `GetFrameTiming` / lê os flags `VRCompositor_ReprojectionMotion_*` (Motion Smoothing)?
 

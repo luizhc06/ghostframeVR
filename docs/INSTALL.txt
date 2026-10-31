@@ -1,35 +1,38 @@
 ghostframeVR: instalação rápida
 ================================
 
-ATENÇÃO: versão alpha. Esta versão é um PROXY DE DIAGNÓSTICO: ainda não gera
-frames, só registra em log como o vídeo passa pelo driver. Faça backup.
+ATENÇÃO: versão alpha. O frame gen é experimental e vem desligado. Se algo
+falhar, o proxy volta sozinho a só repassar os frames.
 
-JEITO FÁCIL: abra o ghostframeVR.exe, vá na aba Instalação e clique em
-INSTALAR. Ele acha o driver, faz backup e troca a DLL sozinho.
+PELO APP (recomendado)
 
-Jeito manual:
+1. Feche o SteamVR.
+2. Abra o ghostframeVR.exe.
+3. Aba Instalação: confira se o Automático achou o driver do seu headset
+   (ex.: "usando Pico Connect"). Se não achou, cole a pasta do driver no
+   campo e aperte Enter. Clique em INSTALAR (faz backup antes).
+4. Aba Desempenho: Frame gen em Auto.
+5. Aba HUD: ligue o HUD (vire o pulso para o rosto para ver no headset).
+6. Abra o programa do headset e o SteamVR e jogue.
+7. Aba Log: "Gerar relatório" junta os arquivos para mandar em
+   https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml
 
-1. Feche o SteamVR e o app de streaming (ex.: Pico Connect).
+ATUALIZAR: feche o app antigo pela bandeja (botão direito no fantasma, Sair),
+abra o .exe novo e clique em ATUALIZAR na aba Instalação (SteamVR fechado).
 
-2. Abra no Bloco de Notas:
-      %LOCALAPPDATA%\openvr\openvrpaths.vrpath
-   Em "external_drivers" está a pasta do driver de streaming.
-   A DLL fica em:  <pasta>\bin\win64\driver_<nome>.dll
+DESINSTALAR: aba Instalação, DESINSTALAR (SteamVR fechado).
 
-3. Faça BACKUP da pasta bin\win64 inteira.
+MANUAL (sem o app)
 
-4. Renomeie a DLL original:
-      driver_<nome>.dll  ->  driver_<nome>_real.dll
-
-5. Renomeie a driver_ghostframe.dll deste pacote para driver_<nome>.dll
-   e copie para a mesma pasta bin\win64.
-
-6. Abra o app de streaming, conecte, abra o SteamVR e jogue 2–3 minutos.
-
-7. O log fica em bin\win64\ghostframe.log
-   (se a pasta não for gravável, ex.: Program Files, ele vai para %TEMP%\ghostframe.log)
-   Mande em: https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml
-
-DESINSTALAR: apague a nossa DLL e renomeie driver_<nome>_real.dll de volta.
+1. Ache a pasta do driver do headset em %LOCALAPPDATA%\openvr\openvrpaths.vrpath
+   ("external_drivers") ou em Steam\logs\vrserver.txt. A DLL fica em
+   <pasta>\bin\win64\driver_<nome>.dll
+2. Faça BACKUP da pasta bin\win64.
+3. Renomeie a DLL original para driver_<nome>_real.dll e copie a
+   driver_ghostframe.dll deste pacote com o nome driver_<nome>.dll
+4. Para ligar o frame gen, crie %LOCALAPPDATA%\ghostframeVR\ghostframe.ini com:
+      [framegen]
+      ativo=1
+5. O log fica em bin\win64\ghostframe.log (ou em %TEMP%\ghostframe.log).
 
 Mais informações: https://github.com/luizhc06/ghostframevr
