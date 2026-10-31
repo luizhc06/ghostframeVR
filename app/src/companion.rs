@@ -25,6 +25,8 @@ pub struct Painel {
     pub auto: Value,
     pub hud_conectado: bool,
     pub metricas: hud::Metricas,
+    /// Último problema com o SteamVR ou o HUD, para a janela mostrar o motivo.
+    pub erro: Option<String>,
 }
 
 /// Pedido da janela para gravar no SteamVR ao vivo. Erro = sem sessão (o chamador cai no arquivo).
@@ -33,9 +35,11 @@ pub struct Gravar {
     pub resposta: mpsc::Sender<Result<(), String>>,
 }
 
-pub fn iniciar(c: Caminhos, painel: Arc<Mutex<Painel>>) -> mpsc::Sender<Gravar> {
+/// `ao_fechar_steamvr` roda nesta thread quando o SteamVR sai (o app aberto pelo
+/// autostart usa isso para sair junto).
+pub fn iniciar(c: Caminhos, painel: Arc<Mutex<Painel>>, ao_fechar_steamvr: Box<dyn Fn() + Send>) -> mpsc::Sender<Gravar> {
     let (tx, rx) = mpsc::channel();
-    let _ = std::thread::Builder::new().name("companion".into()).spawn(move || laco(c, painel, rx));
+    let _ = std::thread::Builder::new().name("companion".into()).spawn(move || laco(c, painel, rx, ao_fechar_steamvr));
     tx
 }
 
@@ -45,21 +49,9 @@ pub fn itens(cfg: &Map<String, Value>) -> hud::Itens {
     hud::Itens { fps: tem("fps"), frames: tem("frames"), frametime: tem("ft"), latencia: tem("lat"), gpu: tem("gpu"), grafico: tem("graf") }
 }
 
-/// Prévia do HUD sem SteamVR aberto: só para ver o visual.
+/// Prévia do HUD sem SteamVR: o visual com "--", sem números inventados.
 pub fn exemplo() -> hud::Metricas {
-    let historico: Vec<f32> = (0..60).map(|i| if (24..30).contains(&i) { 82.0 } else { 90.0 }).collect();
-    hud::Metricas {
-        fps_headset: Some(90.0),
-        fps_jogo: Some(45.0),
-        hz: Some(90.0),
-        reais: Some(45),
-        gerados: Some(45),
-        ms_jogo: Some(21.0),
-        ms_framegen: Some(1.6),
-        latencia_ms: None,
-        modo: "EXEMPLO".into(),
-        historico,
-    }
+    hud::Metricas { modo: "PREVIA".into(), ..Default::default() }
 }
 
 fn texto<'a>(cfg: &'a Map<String, Value>, chave: &str) -> &'a str {
@@ -81,6 +73,9 @@ struct Sessao {
     olhando: bool,
     /// 0 = escondido, 1 = na opacidade escolhida.
     fade: f32,
+    /// O pulso segue o índice do controle de quando foi posicionado: reaplica de tempos
+    /// em tempos para pegar um controle que reconectou com outro índice.
+    posicionado: Instant,
 }
 
 struct Gesto {
@@ -107,9 +102,10 @@ fn gesto(s: &mut Sessao) {
     }
 }
 
-fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
-    let mut sys = sysinfo::System::new();
+fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_fechar_steamvr: Box<dyn Fn() + Send>) {
     let mut sessao: Option<Sessao> = None;
+    // Depois de um Quit, espera o vrserver sumir: não reconecta num SteamVR desligando.
+    let mut esperando_fechar = false;
     let mut auto = auto::Auto::new();
     let mut desenho = hud::Hud::default();
     let mut historico: Vec<f32> = Vec::with_capacity(61);
@@ -146,9 +142,11 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
         let cfg = core::config(&std::fs::read_to_string(c.app.join("ghostframe.ini")).unwrap_or_default());
         let ovr = core::ler_openvrpaths(&c.openvrpaths);
 
+        let steamvr = vr::processo_rodando("vrserver.exe");
         if sessao.is_none() {
             // Só conecta com o SteamVR já aberto: o companion nunca deve abrir o SteamVR sozinho.
-            if core::processos(&mut sys)["steamvr"] != true {
+            esperando_fechar &= steamvr;
+            if !steamvr || esperando_fechar {
                 continue;
             }
             let Some(runtime) = &ovr.runtime else { continue };
@@ -162,22 +160,28 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
                         gesto: None,
                         olhando: false,
                         fade: 0.0,
-                    })
+                        posicionado: Instant::now(),
+                    });
+                    painel.lock().unwrap_or_else(|e| e.into_inner()).erro = None;
                 }
-                Err(_) => {
+                Err(e) => {
+                    painel.lock().unwrap_or_else(|e| e.into_inner()).erro = Some(format!("SteamVR: {e}"));
                     proximo = Instant::now() + Duration::from_secs(3);
                     continue;
                 }
             }
         }
         let s = sessao.as_mut().unwrap();
-        if s.vr.deve_sair() {
+        // Quit pedido pelo SteamVR, ou o vrserver sumiu sem avisar (travou, foi morto).
+        let saiu = s.vr.deve_sair();
+        if saiu || !steamvr {
             sessao = None;
-            let mut p = painel.lock().unwrap_or_else(|e| e.into_inner());
-            p.vr = Value::Null;
-            p.hud_conectado = false;
+            esperando_fechar = saiu;
+            *painel.lock().unwrap_or_else(|e| e.into_inner()) = Painel::default();
+            ao_fechar_steamvr();
             continue;
         }
+        let mut erro: Option<String> = None;
 
         let info = s.vr.info_hmd();
         let timing = s.vr.timing();
@@ -266,14 +270,22 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
         let deslocamento = [cm("hud.x"), cm("hud.y"), cm("hud.z")];
         let opacidade = num(&cfg, "hud.opacidade", 90.0) / 100.0;
         if hud_ativo && s.hud.is_none() {
-            s.hud = s.vr.overlay(CHAVE_HUD, "ghostframeVR").ok();
+            match s.vr.overlay(CHAVE_HUD, "ghostframeVR") {
+                Ok(o) => s.hud = Some(o),
+                Err(e) => erro = Some(format!("HUD: {e}")),
+            }
             s.pos_hud.clear();
             s.fade = 0.0;
+        }
+        if no_pulso && s.posicionado.elapsed() > Duration::from_secs(5) {
+            s.pos_hud.clear();
         }
         if let Some(o) = &s.hud {
             if hud_ativo {
                 let (px, w, h) = desenho.desenhar(&metricas, &itens(&cfg));
-                let _ = o.imagem(&s.vr, px, w, h);
+                if let Err(e) = o.imagem(&s.vr, px, w, h) {
+                    erro = Some(format!("HUD: {e}"));
+                }
                 let pos = ["hud.ancora", "hud.tamanho", "hud.opacidade", "hud.x", "hud.y", "hud.z", "hud.olhar"]
                     .map(|k| texto(&cfg, k))
                     .join("|");
@@ -281,8 +293,12 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
                     let alpha = if com_gesto { opacidade * s.fade } else { opacidade };
                     let ok = o.posicionar(&s.vr, ancora, num(&cfg, "hud.tamanho", 12.0) / 100.0, deslocamento, [0.0; 3], alpha);
                     // Controle desligado: tenta de novo no próximo segundo.
-                    if ok.is_ok() {
-                        s.pos_hud = pos;
+                    match ok {
+                        Ok(()) => {
+                            s.pos_hud = pos;
+                            s.posicionado = Instant::now();
+                        }
+                        Err(e) => erro = Some(format!("HUD: {e}")),
                     }
                 }
             }
@@ -301,12 +317,21 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
 
         // Iniciar junto com o SteamVR.
         let quer = texto(&cfg, "app.autostart") == "1";
+        let manifesto = c.app.join("ghostframevr.vrmanifest");
         if s.autostart != Some(quer) {
-            let manifesto = c.app.join("ghostframevr.vrmanifest");
-            let exe = std::env::current_exe().unwrap_or_default();
-            let gravou = std::fs::create_dir_all(&c.app).and_then(|_| std::fs::write(&manifesto, vr::manifesto(&exe)));
-            if gravou.is_ok() && s.vr.autostart(&manifesto, quer).is_ok() {
-                s.autostart = Some(quer);
+            // Desligado e nunca registrado: não aparece na lista do SteamVR sem o usuário pedir.
+            let r = if !quer && !manifesto.exists() {
+                Ok(())
+            } else {
+                let exe = std::env::current_exe().unwrap_or_default();
+                std::fs::create_dir_all(&c.app)
+                    .and_then(|_| std::fs::write(&manifesto, vr::manifesto(&exe)))
+                    .map_err(|e| e.to_string())
+                    .and_then(|_| s.vr.autostart(&manifesto, quer))
+            };
+            match r {
+                Ok(()) => s.autostart = Some(quer),
+                Err(e) => erro = Some(format!("Iniciar com o SteamVR: {e}")),
             }
         }
 
@@ -327,5 +352,6 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>) {
         });
         p.hud_conectado = s.hud.is_some() && hud_ativo;
         p.metricas = metricas;
+        p.erro = erro;
     }
 }

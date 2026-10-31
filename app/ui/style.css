@@ -243,3 +243,6 @@ details .linha { margin-top: 6px; }
   color: var(--texto); font: 12px var(--mono); user-select: text;
 }
 .toast.erro { border-color: var(--erro); }
+
+.erro-linha { margin: 0 0 8px; color: var(--erro, #ff3d71); font-size: 12px; }
+.erro-linha:empty { display: none; }

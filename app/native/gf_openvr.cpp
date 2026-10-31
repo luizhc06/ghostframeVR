@@ -13,6 +13,8 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <tlhelp32.h>
+#include <wchar.h>
 typedef wchar_t gf_char; // caminho em UTF-16: pasta do usuário pode ter acento
 #else
 #include <dlfcn.h>
@@ -217,11 +219,10 @@ int32_t gf_vr_autostart(GfVr *v, const char *manifesto, const char *chave, bool 
     return v->apps->SetApplicationAutoLaunch(chave, ligado);
 }
 
+// Sem FindOverlay no KeyInUse: na mesma sessão o HUD é criado uma vez só, então a chave
+// em uso é de outro processo, e a imagem de um overlay só pode vir de quem o criou.
 int32_t gf_overlay_criar(GfVr *v, const char *chave, const char *nome, uint64_t *h) {
-    vr::EVROverlayError e = v->overlay->CreateOverlay(chave, nome, h);
-    // Já criado por nós nesta sessão (ex.: HUD religado): reaproveita.
-    if (e == vr::VROverlayError_KeyInUse) e = v->overlay->FindOverlay(chave, h);
-    return e;
+    return v->overlay->CreateOverlay(chave, nome, h);
 }
 
 int32_t gf_overlay_imagem(GfVr *v, uint64_t h, const void *rgba, uint32_t largura, uint32_t altura) {
@@ -269,5 +270,21 @@ int32_t gf_overlay_alpha(GfVr *v, uint64_t h, float alpha) {
 int32_t gf_overlay_mostrar(GfVr *v, uint64_t h, bool visivel) {
     return visivel ? v->overlay->ShowOverlay(h) : v->overlay->HideOverlay(h);
 }
+
+#ifdef _WIN32
+// Só a lista de nomes (snapshot do Toolhelp): não abre handle de processo nenhum,
+// muito menos o do jogo.
+bool gf_processo_rodando(const wchar_t *nome) {
+    HANDLE s = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (s == INVALID_HANDLE_VALUE) return false;
+    PROCESSENTRY32W e;
+    e.dwSize = sizeof(e);
+    bool achou = false;
+    for (BOOL ok = Process32FirstW(s, &e); ok && !achou; ok = Process32NextW(s, &e))
+        achou = _wcsicmp(e.szExeFile, nome) == 0;
+    CloseHandle(s);
+    return achou;
+}
+#endif
 
 } // extern "C"

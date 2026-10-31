@@ -57,7 +57,7 @@ mod win {
         ovr.config.as_ref().map(|c| c.join("steamvr.vrsettings"))
     }
     fn steamvr_aberto() -> bool {
-        core::processos(&mut sysinfo::System::new())["steamvr"] == true
+        vr::processo_rodando("vrserver.exe")
     }
     fn jogo(cfg: &Map<String, Value>) -> String {
         cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT).to_string()
@@ -68,8 +68,9 @@ mod win {
         pedidos: Mutex<mpsc::Sender<companion::Gravar>>,
     }
 
+    // Comandos async: rodam fora da thread da janela (leem arquivos, esperam o companion).
     #[tauri::command]
-    fn estado(sys: tauri::State<Mutex<sysinfo::System>>, c: tauri::State<Companion>) -> Value {
+    async fn estado(c: tauri::State<'_, Companion>) -> Result<Value, String> {
         let ovr = openvrpaths();
         let cfg = config();
         let alvo = core::alvo(&cfg, &ovr);
@@ -86,7 +87,7 @@ mod win {
         let mut r = json!({
             "versao": env!("CARGO_PKG_VERSION"),
             "dllEmbutida": !PROXY_DLL.is_empty(),
-            "processos": core::processos(&mut sys.lock().unwrap()),
+            "processos": { "steamvr": steamvr_aberto() },
             "drivers": ovr.drivers.iter().map(Driver::json).collect::<Vec<_>>(),
             "alvo": alvo.map(|d| { let mut j = d.json(); j["estado"] = core::estado(&d.dll).codigo().into(); j }),
             "log": log,
@@ -98,8 +99,8 @@ mod win {
         let p = c.painel.lock().unwrap_or_else(|e| e.into_inner());
         r["vr"] = p.vr.clone();
         r["auto"] = p.auto.clone();
-        r["hud"] = json!({ "conectado": p.hud_conectado });
-        r
+        r["hud"] = json!({ "conectado": p.hud_conectado, "erro": p.erro });
+        Ok(r)
     }
 
     #[tauri::command]
@@ -107,7 +108,7 @@ mod win {
         let mut cfg = config();
         cfg.extend(valores);
         fs::create_dir_all(pasta_app()).map_err(|e| e.to_string())?;
-        fs::write(arquivo_ini(), core::config_para_ini(&cfg)).map_err(|e| e.to_string())
+        core::gravar_atomico(&arquivo_ini(), &core::config_para_ini(&cfg)).map_err(|e| e.to_string())
     }
 
     fn executar(op: &str, dll: &Path) -> io::Result<String> {
@@ -165,7 +166,7 @@ mod win {
     /// Ajuste do SteamVR vindo da janela: ao vivo pelo companion; com o SteamVR
     /// fechado, direto no steamvr.vrsettings (aberto, ele regravaria o arquivo ao sair).
     #[tauri::command]
-    fn vr_set(chave: String, valor: Value, c: tauri::State<Companion>) -> Result<(), String> {
+    async fn vr_set(chave: String, valor: Value, c: tauri::State<'_, Companion>) -> Result<(), String> {
         let jogo = jogo(&config());
         let num = || valor.as_f64().ok_or("valor inválido");
         let sim = || valor.as_bool().ok_or("valor inválido");
@@ -209,14 +210,14 @@ mod win {
 
     /// A imagem exata que o headset vai mostrar (a janela não reimplementa o visual).
     #[tauri::command]
-    fn hud_previa(c: tauri::State<Companion>) -> Value {
+    async fn hud_previa(c: tauri::State<'_, Companion>) -> Result<Value, String> {
         let mut m = c.painel.lock().unwrap_or_else(|e| e.into_inner()).metricas.clone();
         if m.modo.is_empty() {
             m = companion::exemplo();
         }
         let mut hud = hud::Hud::default();
         let (px, w, h) = hud.desenhar(&m, &companion::itens(&config()));
-        json!({ "largura": w, "altura": h, "rgba": core::base64(px) })
+        Ok(json!({ "largura": w, "altura": h, "rgba": core::base64(px) }))
     }
 
     /// Junta log, vrserver.txt e configs numa pasta para anexar no GitHub.
@@ -264,16 +265,31 @@ mod win {
         }
         // --bandeja: aberto pelo SteamVR (autostart); fica só no ícone, sem WebView.
         let bandeja = a.iter().any(|x| x == "--bandeja");
-        let painel = Arc::new(Mutex::new(companion::Painel::default()));
-        let caminhos = companion::Caminhos { app: pasta_app(), openvrpaths: local().join("openvr").join("openvrpaths.vrpath") };
-        let pedidos = Mutex::new(companion::iniciar(caminhos, painel.clone()));
         tauri::Builder::default()
-            .manage(Mutex::new(sysinfo::System::new()))
-            .manage(Companion { painel, pedidos })
+            // Uma cópia só: o autostart do SteamVR com o app já aberto só avisa a que está rodando.
+            .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+                if !args.iter().any(|x| x == "--bandeja") {
+                    abrir_janela(app);
+                }
+            }))
             .invoke_handler(tauri::generate_handler![
                 estado, salvar_config, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta
             ])
             .setup(move |app| {
+                let painel = Arc::new(Mutex::new(companion::Painel::default()));
+                let caminhos = companion::Caminhos {
+                    app: pasta_app(),
+                    openvrpaths: local().join("openvr").join("openvrpaths.vrpath"),
+                };
+                // Aberto pelo SteamVR e sem janela: sai junto com ele, como os outros overlays.
+                let h = app.handle().clone();
+                let ao_fechar = Box::new(move || {
+                    if bandeja && h.get_webview_window("main").is_none() {
+                        h.exit(0);
+                    }
+                });
+                let pedidos = Mutex::new(companion::iniciar(caminhos, painel.clone(), ao_fechar));
+                app.manage(Companion { painel, pedidos });
                 let abrir = MenuItem::with_id(app, "abrir", "Abrir", true, None::<&str>)?;
                 let sair = MenuItem::with_id(app, "sair", "Sair", true, None::<&str>)?;
                 TrayIconBuilder::new()

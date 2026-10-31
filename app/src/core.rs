@@ -506,14 +506,11 @@ pub fn base64(dados: &[u8]) -> String {
     s
 }
 
-// ---------------------------------------------------------------------------
-// Processos (só olhamos os nomes; nunca abrimos o processo do jogo)
-
-pub fn processos(s: &mut sysinfo::System) -> Value {
-    s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let nomes: Vec<String> = s.processes().values().map(|p| p.name().to_string_lossy().to_lowercase()).collect();
-    let tem = |f: &dyn Fn(&str) -> bool| nomes.iter().any(|n| f(n));
-    json!({ "steamvr": tem(&|n| n.starts_with("vrserver")) })
+/// Grava sem deixar o arquivo pela metade: o companion lê o ini a cada segundo.
+pub fn gravar_atomico(arquivo: &Path, conteudo: &str) -> io::Result<()> {
+    let tmp = arquivo.with_extension("tmp");
+    fs::write(&tmp, conteudo)?;
+    fs::rename(&tmp, arquivo)
 }
 
 // ---------------------------------------------------------------------------

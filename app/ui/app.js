@@ -269,7 +269,7 @@ function render(e) {
   // ----- painel -----
   const aberto = e.processos.steamvr;
   status("steamvr", aberto ? "ok" : "", aberto ? "rodando" : "fechado");
-  if (vr) status("headset", "ok", `${vr.modelo} · ${vr.hz} Hz`);
+  if (vr) status("headset", "ok", `${vr.modelo} · ${fmt(vr.hz)} Hz`);
   else if (!aberto) status("headset", "", "--");
   else if (vivo?.hmd) status("headset", poses.length ? "ok" : "alerta", poses.length ? "conectado" : "sem tracking");
   else status("headset", "alerta", "não detectado");
@@ -286,7 +286,7 @@ function render(e) {
   texto($("#m-cpugpu"), timing ? `${fmt(timing.msCpu, 1)} / ${fmt(timing.msGpu, 1)}` : "--");
   texto($("#m-reproj"), timing ? `${timing.reprojetados} / ${timing.perdidos}` : "--");
   texto($("#leg-jogo"), serieJogo.length ? "jogo" : "");
-  texto($("#leg-fps-guia"), hz ? `${hz} Hz` : "");
+  texto($("#leg-fps-guia"), hz ? `${fmt(hz)} Hz` : "");
   texto($("#leg-ft-guia"), hz ? `${fmt(1000 / hz, 1)} ms` : "");
   if (abaAtiva("painel")) {
     grafico($("#graf-fps"), [
@@ -300,7 +300,7 @@ function render(e) {
 
   // ----- desempenho -----
   const a = e.auto;
-  texto($("#fg-alvo"), hz ? `${hz} Hz` : "--");
+  texto($("#fg-alvo"), hz ? `${fmt(hz)} Hz` : "--");
   texto($("#fg-rec"), a ? a.recomendado + "×" : "--");
   texto($("#fg-motivo"), a?.motivo || "");
 
@@ -333,9 +333,12 @@ function render(e) {
   $("#ms").disabled = !pode;
 
   // ----- HUD -----
-  const hudTag = config["hud.ativo"] !== "1" ? ["", ""] : e.hud?.conectado ? ["ok", "no SteamVR"] : ["alerta", "aguardando SteamVR"];
+  const erro = e.hud?.erro;
+  const hudTag = config["hud.ativo"] !== "1" ? ["", ""] : erro ? ["erro", "erro"] : e.hud?.conectado ? ["ok", "no SteamVR"] : ["alerta", "aguardando SteamVR"];
   classe($("#hud-tag"), "tag " + hudTag[0]);
   texto($("#hud-tag"), hudTag[1]);
+  $("#hud-tag").title = erro || "";
+  texto($("#hud-erro"), erro || "");
 
   // ----- instalação -----
   html($("#drivers"),

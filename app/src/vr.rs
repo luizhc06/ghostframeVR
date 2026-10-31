@@ -56,6 +56,24 @@ extern "C" {
     fn gf_overlay_mostrar(v: *mut GfVr, h: u64, visivel: bool) -> i32;
     fn gf_overlay_alpha(v: *mut GfVr, h: u64, alpha: f32) -> i32;
     fn gf_vr_poses(v: *mut GfVr, mao: i32, hmd: *mut f32, ctrl: *mut f32) -> bool;
+    #[cfg(windows)]
+    fn gf_processo_rodando(nome: *const u16) -> bool;
+}
+
+/// Há um processo com esse executável? Só lê nomes: nunca abre o processo
+/// (o do jogo tem anti-cheat). Ex.: `processo_rodando("vrserver.exe")`.
+#[cfg(windows)]
+pub fn processo_rodando(exe: &str) -> bool {
+    let w: Vec<u16> = exe.encode_utf16().chain([0]).collect();
+    unsafe { gf_processo_rodando(w.as_ptr()) }
+}
+
+#[cfg(not(windows))]
+pub fn processo_rodando(exe: &str) -> bool {
+    let nome = exe.trim_end_matches(".exe");
+    std::fs::read_dir("/proc").into_iter().flatten().flatten().any(|e| {
+        std::fs::read_to_string(e.path().join("comm")).is_ok_and(|c| c.trim().eq_ignore_ascii_case(nome))
+    })
 }
 
 #[derive(Debug, Clone)]
