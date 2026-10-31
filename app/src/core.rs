@@ -446,21 +446,39 @@ pub fn ler_steamvr(v: &Value, jogo: &str) -> Value {
     })
 }
 
-/// frames = 0 remove a trava; 1 = metade da taxa do headset; 2 = um terço.
-pub fn gravar_trava(arquivo: &Path, jogo: &str, frames: i64) -> io::Result<()> {
+/// Grava no steamvr.vrsettings. Só com o SteamVR fechado: aberto, ele regrava o arquivo
+/// ao sair, e o caminho certo é o IVRSettings (vr.rs). `None` remove a chave.
+pub fn gravar_steamvr(arquivo: &Path, valores: &[(&str, &str, Option<Value>)]) -> io::Result<()> {
     let mut v = ler_json(arquivo).ok_or_else(|| erro(format!("não consegui ler {}", arquivo.display())))?;
     fs::copy(arquivo, arquivo.with_extension("vrsettings.ghostframe.bak"))?;
     let raiz = v.as_object_mut().ok_or_else(|| erro("steamvr.vrsettings inválido"))?;
-    let app = raiz.entry(jogo).or_insert_with(|| json!({}));
-    let app = app.as_object_mut().ok_or_else(|| erro("steamvr.vrsettings inválido"))?;
-    if frames == 0 {
-        app.remove("framesToThrottle");
-        app.remove("additionalFramesToPredict");
-    } else {
-        app.insert("framesToThrottle".into(), json!(frames));
-        app.insert("additionalFramesToPredict".into(), json!(frames));
+    for (secao, chave, valor) in valores {
+        let s = raiz.entry(*secao).or_insert_with(|| json!({}));
+        let s = s.as_object_mut().ok_or_else(|| erro("steamvr.vrsettings inválido"))?;
+        match valor {
+            Some(x) => s.insert(chave.to_string(), x.clone()),
+            None => s.remove(*chave),
+        };
     }
     fs::write(arquivo, serde_json::to_string_pretty(&v)?)
+}
+
+/// frames = 0 remove a trava; 1 = metade da taxa do headset; 2 = um terço.
+pub fn gravar_trava(arquivo: &Path, jogo: &str, frames: i64) -> io::Result<()> {
+    let v = (frames != 0).then(|| json!(frames));
+    gravar_steamvr(arquivo, &[(jogo, "framesToThrottle", v.clone()), (jogo, "additionalFramesToPredict", v)])
+}
+
+pub fn base64(dados: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut s = String::with_capacity(dados.len().div_ceil(3) * 4);
+    for c in dados.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            s.push(if i <= c.len() { T[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+        }
+    }
+    s
 }
 
 // ---------------------------------------------------------------------------
@@ -568,6 +586,15 @@ mod testes {
         assert_eq!(r["stats"]["DirectMode::Present"], json!([[2.0, 71.9, 13.91, 12.0, 20.5]]));
         assert_eq!(r["avisos"].as_array().unwrap().len(), 1);
         assert_eq!(ler_log(""), Value::Null);
+    }
+
+    #[test]
+    fn base64_padrao() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
     }
 
     #[test]
