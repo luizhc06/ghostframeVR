@@ -1,4 +1,11 @@
-# Briefing de engenharia reversa — driver SteamVR do Pico Connect
+# Plano B: engenharia reversa do driver SteamVR do Pico Connect
+
+> **Plano atual:** não desmontar o binário. O ghostframe é um intermediário na
+> interface pública do SteamVR (OpenVR): frames, poses e tempos passam por ela e
+> o proxy já registra tudo no `ghostframe.log`. Este briefing só vale se o log do
+> teste real mostrar algo que a interface não resolve (ex.: o driver ignora o
+> conteúdo que entregamos ou limita a taxa por conta própria).
+
 
 **Objetivo:** inserir frames sintéticos (frame generation) entre o compositor do
 SteamVR e o encoder do Pico Connect, via uma DLL proxy (ver `src/proxy/`). Já

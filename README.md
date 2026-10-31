@@ -61,7 +61,7 @@ Tudo roda dentro do `vrserver.exe` do SteamVR. **O processo do jogo nunca é toc
 | | Fase | Descrição |
 |:-:|---|---|
 | ✅ | **1. Diagnóstico** | Proxy transparente que loga caminho de vídeo, taxa de frames, texturas, depth, poses e flags de Motion Smoothing |
-| 🔄 | **2. Engenharia reversa** | Entender o `Present` → encode → envio do driver ([briefing](docs/RE_BRIEF.md)) |
+| 🔄 | **2. Caminho dos frames** | Confirmar pelo log o que chega ao driver (frames, poses, tempos) pela interface pública do SteamVR. Abrir o driver só se o log mostrar bloqueio ([plano B](docs/RE_BRIEF.md)) |
 | ⏳ | **3. Captura** | Capturar frames D3D11 + poses e gravar para testes offline |
 | ⏳ | **4. Frame gen offline** | Protótipo de extrapolação com NVIDIA Optical Flow em frames gravados |
 | ⏳ | **5. Injeção** | Inserir frames sintéticos ao vivo quando o jogo perde o vsync |
@@ -160,7 +160,7 @@ cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on
 src/proxy/       driver proxy (HmdDriverFactory + wrappers das interfaces OpenVR)
 app/             app de controle (Tauri 2): instala o proxy, status, gráficos, ghostframe.ini
 tests/           SteamVR e driver de streaming simulados
-docs/            briefing de engenharia reversa, assets
+docs/            plano B de engenharia reversa, assets
 third_party/     openvr_driver.h (Valve, BSD)
 cmake/           toolchain MinGW
 ```
