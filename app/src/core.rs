@@ -9,6 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Texto que só existe na nossa DLL (log de src/proxy/driver_main.cpp).
 const MARCA_PROXY: &[u8] = b"ghostframe proxy iniciado";
+/// Só nas DLLs que já sabem gerar frames.
+const MARCA_FRAMEGEN: &[u8] = b"recursos: framegen";
 pub const VRCHAT: &str = "steam.app.438100";
 
 /// Opções do ghostframe.ini e seus padrões. Tudo desligado por padrão.
@@ -187,9 +189,10 @@ pub fn caminho_real(dll: &Path) -> PathBuf {
     dll.with_file_name(format!("{stem}_real.dll"))
 }
 
-/// O app pergunta a cada segundo; só relê a DLL (que pode ter dezenas de MB) se ela mudou.
-fn eh_nossa(p: &Path) -> bool {
-    type Cache = Option<(PathBuf, u64, Option<SystemTime>, bool)>;
+/// (é a nossa DLL, ela tem frame gen). O app pergunta a cada segundo; só relê a DLL
+/// (que pode ter dezenas de MB) se ela mudou.
+fn marcas(p: &Path) -> (bool, bool) {
+    type Cache = Option<(PathBuf, u64, Option<SystemTime>, (bool, bool))>;
     static CACHE: Mutex<Cache> = Mutex::new(None);
     let (tam, mtime) = fs::metadata(p).map(|m| (m.len(), m.modified().ok())).unwrap_or((0, None));
     let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
@@ -198,9 +201,19 @@ fn eh_nossa(p: &Path) -> bool {
             return *r;
         }
     }
-    let r = fs::read(p).map(|b| b.windows(MARCA_PROXY.len()).any(|w| w == MARCA_PROXY)).unwrap_or(false);
+    let tem = |b: &[u8], m: &[u8]| b.windows(m.len()).any(|w| w == m);
+    let r = fs::read(p).map(|b| (tem(&b, MARCA_PROXY), tem(&b, MARCA_FRAMEGEN))).unwrap_or((false, false));
     *c = Some((p.to_path_buf(), tam, mtime, r));
     r
+}
+
+fn eh_nossa(p: &Path) -> bool {
+    marcas(p).0
+}
+
+/// O proxy instalado nesse driver já sabe gerar frames (proxy antigo: precisa atualizar).
+pub fn proxy_com_framegen(dll: &Path) -> bool {
+    estado(dll) == Estado::Instalado && marcas(dll).1
 }
 
 pub fn estado(dll: &Path) -> Estado {
@@ -347,6 +360,7 @@ pub fn ler_log(texto: &str) -> Value {
     let mut render = Value::Null;
     let mut avisos: Vec<String> = Vec::new();
     let mut stats = Map::new();
+    let mut framegen = Value::Null;
     for (t, m) in &linhas {
         if m.contains("TrackedDeviceAdded") && m.contains("class=HMD") {
             hmd = true;
@@ -361,6 +375,24 @@ pub fn ler_log(texto: &str) -> Value {
             motion = m[i + 16..].split(')').next().unwrap_or("").into();
         } else if m.contains("SetRecommendedRenderTargetSize") {
             render = m.rsplit(' ').next().unwrap_or("").into();
+        } else if let Some(resto) = m.strip_prefix("FRAMEGEN estado=") {
+            // FRAMEGEN estado=pronto reais=45.0/s gerados=45.0/s falhas=0 trava=1 gpu_ms=1.42
+            let campo = |k: &str| {
+                resto.split_whitespace().find_map(|kv| kv.strip_prefix(k)?.strip_prefix('=')?.trim_end_matches("/s").parse::<f64>().ok())
+            };
+            framegen = json!({
+                "t": t,
+                "estado": resto.split_whitespace().next().unwrap_or(""),
+                "reais": campo("reais"), "gerados": campo("gerados"), "falhas": campo("falhas"),
+                "trava": campo("trava"), "gpuMs": campo("gpu_ms"),
+            });
+            // Série para o gráfico: [t, gerados/s, trava].
+            let serie = stats.entry("FRAMEGEN").or_insert_with(|| json!([]));
+            let v = serie.as_array_mut().unwrap();
+            v.push(json!([t, campo("gerados").unwrap_or(0.0), campo("trava").unwrap_or(0.0)]));
+            if v.len() > 150 {
+                v.remove(0);
+            }
         } else if let Some(resto) = m.strip_prefix("STATS ") {
             let Some((antes, depois)) = resto.split_once("/s") else { continue };
             let Some((nome, taxa)) = antes.trim_end().rsplit_once(char::is_whitespace) else { continue };
@@ -377,7 +409,8 @@ pub fn ler_log(texto: &str) -> Value {
                 v.remove(0);
             }
         }
-        if (m.contains("!!") || m.contains("ERRO")) && !avisos.iter().any(|a| a == m) {
+        let fg_problema = m.starts_with("FRAMEGEN") && (m.contains("falhou") || m.contains("indisponível") || m.contains("desativado"));
+        if (m.contains("!!") || m.contains("ERRO") || fg_problema) && !avisos.iter().any(|a| a == m) {
             avisos.push(m.to_string());
         }
     }
@@ -386,7 +419,7 @@ pub fn ler_log(texto: &str) -> Value {
         "pid": pid,
         "t": linhas.last().map(|l| l.0).unwrap_or(0.0),
         "hmd": hmd, "video": video, "depth": depth, "motionSmoothing": motion, "render": render,
-        "avisos": avisos, "stats": stats,
+        "avisos": avisos, "stats": stats, "framegen": framegen,
         "linhas": linhas[fim..].iter().map(|(t, m)| format!("{t:9.3}  {m}")).collect::<Vec<_>>(),
     })
 }
@@ -597,7 +630,9 @@ mod testes {
 [    22     0.070] DirectMode::GetFrameTiming #0 flagsIn=0x0(motionSmoothing=off) -> presents=1\n\
 [    33     0.075] HmdDriverFactory(\"IVRWatchdogProvider_001\") -> ok\n\
 [    22     2.000] STATS DirectMode::Present            71.9/s  dt(ms) avg=13.91 min=12.00 max=20.50\n\
-[    22     2.100]   !! versão diferente da que conhecemos\n";
+[    22     2.100]   !! versão diferente da que conhecemos\n\
+[    22     2.200] FRAMEGEN falhou: Gerar (repassando o original)\n\
+[    22     4.000] FRAMEGEN estado=pronto reais=45.0/s gerados=44.5/s falhas=1 trava=1 gpu_ms=1.42\n";
         let r = ler_log(log);
         assert_eq!(r["pid"], "22");
         assert_eq!(r["hmd"], true);
@@ -606,7 +641,11 @@ mod testes {
         assert_eq!(r["motionSmoothing"], "off");
         assert_eq!(r["render"], "2160x2160");
         assert_eq!(r["stats"]["DirectMode::Present"], json!([[2.0, 71.9, 13.91, 12.0, 20.5]]));
-        assert_eq!(r["avisos"].as_array().unwrap().len(), 1);
+        assert_eq!(r["avisos"].as_array().unwrap().len(), 2);
+        assert_eq!(r["framegen"]["estado"], "pronto");
+        assert_eq!(r["framegen"]["gerados"], 44.5);
+        assert_eq!(r["framegen"]["trava"], 1.0);
+        assert_eq!(r["framegen"]["gpuMs"], 1.42);
         assert_eq!(ler_log(""), Value::Null);
     }
 

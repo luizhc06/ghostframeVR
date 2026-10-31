@@ -79,6 +79,7 @@ if (!window.__TAURI__) {
         if (cmd === "relatorio") return "C:\\Users\\voce\\AppData\\Local\\ghostframeVR\\relatorio-1793476800";
         if (cmd !== "estado") return;
         const on = modo === "instalado";
+        const fgOn = on && cfg["framegen.ativo"] === "1";
         const present = serie((t) => {
           const fps = 90 - queda(t) - Math.random() * 1.5;
           return [t, fps, 1000 / fps, 9.5 + Math.random(), 1000 / fps + 3 + Math.random() * 5 + queda(t) / 2];
@@ -86,7 +87,7 @@ if (!window.__TAURI__) {
         const poses = serie((t) => [t, 500 + Math.random() * 4]);
         const escala = Math.sqrt(vrCfg.supersampleManual ? vrCfg.supersample : 1);
         return {
-          framegenDisponivel: false, versao: "0.1.2-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
+          framegenDisponivel: on, versao: "0.2.0-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
           processos: { steamvr: aberto },
           drivers: modo === "sem-alvo" ? [] : [
             { nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll" },
@@ -100,7 +101,9 @@ if (!window.__TAURI__) {
             dados: {
               pid: "8812", t: relogio(), hmd: true, video: "DirectMode", depth: true, motionSmoothing: "off", render: "2160x2160",
               avisos: ["  !! versão diferente da que conhecemos (IVRVirtualDisplay_002 / IVRDriverDirectModeComponent_009)"],
-              stats: { "DirectMode::Present": present, "HMD TrackedDevicePoseUpdated": poses },
+              stats: { "DirectMode::Present": fgOn ? present.map((p) => [p[0], p[1] / 2, ...p.slice(2)]) : present,
+                "HMD TrackedDevicePoseUpdated": poses, ...(fgOn ? { FRAMEGEN: serie((t) => [t, 44 + Math.random(), 1]) } : {}) },
+              framegen: fgOn ? { estado: "pronto", reais: 45, gerados: 44.6, falhas: 0, trava: 1, gpuMs: 1.4 } : null,
               linhas: [
                 "    0.002  ghostframe proxy iniciado. DLL própria: C:\\...\\driver_pico.dll",
                 "    0.004  Carregando driver real: C:\\...\\driver_pico_real.dll",

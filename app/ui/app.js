@@ -262,12 +262,26 @@ function render(e) {
   if (framegenDisponivel !== !!e.framegenDisponivel) {
     framegenDisponivel = !!e.framegenDisponivel;
     $$("#fg-modo button, #fg-manual button").forEach((b) => (b.disabled = !framegenDisponivel));
-    $("#fg-aviso").hidden = $("#fg-tag").hidden = framegenDisponivel;
     preencherConfig();
   }
+  // Frame gen depende do proxy instalado ser uma versão que gera frames.
+  $("#fg-aviso").hidden = framegenDisponivel;
+  texto($("#fg-aviso"), e.alvo?.estado === "instalado"
+    ? "O proxy instalado é de uma versão sem frame gen. Atualize na aba Instalação."
+    : "Instale o proxy na aba Instalação para usar o frame gen.");
+  classe($("#fg-tag"), "tag " + (framegenDisponivel ? "alerta" : ""));
+  texto($("#fg-tag"), framegenDisponivel ? "experimental" : "indisponível");
   const vivo = e.log && e.log.idade < 6 ? e.log.dados : null;
   const stats = vivo?.stats || {};
-  const present = stats["DirectMode::Present"] || stats["VirtualDisplay::Present"] || [];
+  const presentComp = stats["DirectMode::Present"] || stats["VirtualDisplay::Present"] || [];
+  // Com a trava, o proxy entrega os gerados sozinho (fora dos Present do compositor): soma.
+  const serieFG = config["framegen.ativo"] === "1" ? stats["FRAMEGEN"] || [] : [];
+  const extrasEm = (t) => {
+    let x = 0;
+    for (const [tf, gerados, trava] of serieFG) if (tf <= t + 1) x = trava > 0 ? gerados : 0;
+    return x;
+  };
+  const present = presentComp.map((p) => [p[0], p[1] + extrasEm(p[0]), ...p.slice(2)]);
   const poses = stats["HMD TrackedDevicePoseUpdated"] || [];
   const estado = e.alvo?.estado;
   const vr = e.vr, timing = vr?.timing, hz = vr?.hz;
@@ -315,6 +329,11 @@ function render(e) {
   texto($("#fg-alvo"), hz ? `${fmt(hz)} Hz` : "--");
   texto($("#fg-rec"), a ? a.recomendado + "×" : "--");
   texto($("#fg-motivo"), framegenDisponivel ? a?.motivo || "" : ""); // sem frame gen o aviso já explica
+  const fgv = vivo?.framegen;
+  $("#fg-vivo").hidden = !(framegenDisponivel && config["framegen.ativo"] === "1");
+  texto($("#fg-estado"), !fgv ? "--" : { pronto: "ativo", esperando: "esperando", falhou: "falhou", desligado: "desligado" }[fgv.estado] || fgv.estado);
+  texto($("#fg-gerados"), fgv?.gerados != null ? `${fmt(fgv.gerados)}/s` : "--");
+  texto($("#fg-gpu"), fgv?.gpuMs >= 0 ? `${fmt(fgv.gpuMs, 1)} ms` : "--");
 
   // Ao vivo com o SteamVR conectado; pelo arquivo só com ele fechado (ele regrava ao sair).
   const s = vr?.config ?? e.steamvr;
@@ -327,11 +346,12 @@ function render(e) {
     `<option value="${esc(j.chave)}"${j.chave === config["app.jogo"] ? " selected" : ""}>${esc(j.nome)}</option>`).join(""));
   $("#jogo").disabled = !e.jogos?.length;
 
-  const auto = modoFrameGen() === "auto";
-  $("#trava-auto").hidden = !auto;
+  // Com o frame gen ligado, a trava é dele (Auto decide; Manual segue o multiplicador).
+  const doFG = framegenDisponivel && config["framegen.ativo"] === "1";
+  $("#trava-auto").hidden = !doFG;
   $$("#trava button").forEach((b) => {
     b.classList.toggle("ativo", String(s?.trava) === b.dataset.valor);
-    b.disabled = !pode || auto;
+    b.disabled = !pode || doFG;
     if (b.dataset.valor !== "0") texto(b.lastChild, hz ? `${fmt(hz / (+b.dataset.valor + 1))} fps` : "");
   });
 

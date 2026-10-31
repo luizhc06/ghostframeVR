@@ -74,13 +74,21 @@
   <section id="aba-desempenho" class="aba">
     <div class="duas">
       <div class="painel">
-        <header><h2>Frame gen</h2><span class="tag alerta" id="fg-tag">em desenvolvimento</span></header>
+        <header><h2>Frame gen</h2><span class="tag" id="fg-tag"></span></header>
         <p class="nota topo">A GPU gera frames extras e alivia a CPU, gargalo em jogos como VRChat.</p>
-        <p class="aviso-fg" id="fg-aviso">Ainda não dá para ligar. Por enquanto o app mede o jogo e mostra o que usaria.</p>
+        <p class="aviso-fg" id="fg-aviso" hidden></p>
         <div class="seg" id="fg-modo">
           <button data-valor="off">Desligado</button>
           <button data-valor="auto">Auto</button>
           <button data-valor="manual">Manual</button>
+        </div>
+
+        <div id="fg-vivo" class="bloco" hidden>
+          <div class="faixas leituras mini">
+            <div><h3>Estado</h3><b id="fg-estado">--</b></div>
+            <div><h3>Gerados</h3><b id="fg-gerados">--</b></div>
+            <div><h3>GPU</h3><b id="fg-gpu">--</b></div>
+          </div>
         </div>
 
         <div id="fg-auto" class="bloco" hidden>
@@ -122,7 +130,7 @@
           <select id="jogo"></select>
         </div>
         <div class="bloco">
-          <h3 title="Trava o jogo numa fração da taxa do headset">Trava de fps <span class="tag" id="trava-auto">auto</span></h3>
+          <h3 title="Trava o jogo numa fração da taxa do headset">Trava de fps <span class="tag" id="trava-auto">frame gen</span></h3>
           <div class="seg" id="trava">
             <button data-valor="0">Livre</button>
             <button data-valor="1">½<small></small></button>
