@@ -4,6 +4,21 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.1.3-alpha] - 2026-10-31
+
+### Adicionado
+- Companion do SteamVR dentro do app (processo à parte, nunca no jogo):
+  - HUD no headset estilo relógio: aparece ao virar o pulso para o rosto e some ao abaixar o braço. Âncora no pulso, na visão ou no mundo, com tamanho, opacidade, posição e itens ajustáveis, e prévia real na janela;
+  - ajustes do SteamVR ao vivo, com o jogo aberto: resolução, motion smoothing e trava de fps por jogo;
+  - lê do SteamVR o modelo e os Hz do headset e o fps real do jogo;
+  - modo Auto/Manual do frame gen. O Auto recomenda 2× ou 3× pelo que o jogo aguenta e nunca trava o jogo enquanto o frame gen não existir na DLL;
+  - opção de iniciar junto com o SteamVR.
+- Ícone na bandeja: fechar a janela libera a RAM da interface e o app segue leve em segundo plano. Só uma cópia do app roda por vez.
+
+### Mudado
+- Interface mais enxuta: abas Painel, Desempenho, HUD, Instalação e Log, sem textos repetidos e sem efeitos pesados.
+- Fase 2 do roadmap: validar pelo log o que chega ao driver, em vez de desmontar o binário da Pico.
+
 ## [0.1.2-alpha] - 2026-10-31
 
 ### Adicionado
@@ -22,7 +37,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [0.1.0-alpha] - 2026-10-31
 
-Primeira versão pública — **proxy de diagnóstico** (não gera frames ainda).
+Primeira versão pública: **proxy de diagnóstico** (não gera frames ainda).
 
 ### Adicionado
 - Driver proxy OpenVR: carrega `<nome>_real.dll` e repassa todas as chamadas.

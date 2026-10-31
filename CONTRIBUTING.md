@@ -28,4 +28,4 @@ C++17, 4 espaços, `namespace gf`. Comentários e logs em português.
 
 ## Engenharia reversa
 
-Veja [`docs/RE_BRIEF.md`](docs/RE_BRIEF.md). Compartilhe **conclusões** (fluxos, offsets, estruturas) — **nunca** binários ou código descompilado de terceiros.
+Veja [`docs/RE_BRIEF.md`](docs/RE_BRIEF.md). Compartilhe **conclusões** (fluxos, offsets, estruturas), **nunca** binários ou código descompilado de terceiros.

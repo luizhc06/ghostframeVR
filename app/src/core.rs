@@ -14,14 +14,24 @@ pub const VRCHAT: &str = "steam.app.438100";
 /// Opções do ghostframe.ini e seus padrões. Tudo desligado por padrão.
 pub const PADROES: &[(&str, &str)] = &[
     ("framegen.ativo", "0"),
+    ("framegen.modo", "auto"),
     ("framegen.multiplicador", "2"),
     ("framegen.qualidade", "1"),
     ("framegen.correcao_pose", "1"),
     ("hud.ativo", "0"),
+    ("hud.ancora", "pe"),
+    ("hud.olhar", "1"),
+    ("hud.tamanho", "12"),
+    ("hud.opacidade", "90"),
+    ("hud.x", "0"),
+    ("hud.y", "0"),
+    ("hud.z", "0"),
+    ("hud.itens", "fps,frames,ft,graf"),
     ("gravacao.ativo", "0"),
     ("gravacao.segundos", "5"),
     ("app.alvo", ""),
     ("app.jogo", VRCHAT),
+    ("app.autostart", "0"),
 ];
 
 fn erro(msg: impl Into<String>) -> io::Error {
@@ -79,6 +89,7 @@ impl Driver {
 }
 
 pub struct OpenVrPaths {
+    pub runtime: Option<PathBuf>,
     pub config: Option<PathBuf>,
     pub log: Option<PathBuf>,
     pub drivers: Vec<Driver>,
@@ -110,7 +121,7 @@ pub fn ler_openvrpaths(arquivo: &Path) -> OpenVrPaths {
         embutidos.sort_by(|a, b| a.nome.cmp(&b.nome));
         drivers.extend(embutidos);
     }
-    OpenVrPaths { config: primeiro(&v, "config"), log: primeiro(&v, "log"), drivers }
+    OpenVrPaths { runtime: primeiro(&v, "runtime"), config: primeiro(&v, "config"), log: primeiro(&v, "log"), drivers }
 }
 
 /// O SteamVR carrega <raiz>\bin\win64\driver_<name>.dll, com <name> do manifesto.
@@ -133,6 +144,14 @@ pub fn alvo_padrao(drivers: &[Driver]) -> Option<&Driver> {
         _ => 9,
     };
     drivers.iter().filter(|d| prioridade(d) < 9).min_by_key(|d| prioridade(d))
+}
+
+/// O driver escolhido no app (app.alvo) ou o padrão detectado.
+pub fn alvo(cfg: &Map<String, Value>, ovr: &OpenVrPaths) -> Option<Driver> {
+    match cfg.get("app.alvo").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        Some(p) => Some(driver_em(Path::new(p))),
+        None => alvo_padrao(&ovr.drivers).cloned(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +287,12 @@ pub fn log_mais_recente(candidatos: &[PathBuf]) -> Option<(PathBuf, f64)> {
         .filter_map(|p| Some((p.clone(), fs::metadata(p).ok()?.modified().ok()?)))
         .max_by_key(|(_, m)| *m)
         .map(|(p, m)| (p, m.elapsed().map(|d| d.as_secs_f64()).unwrap_or(0.0)))
+}
+
+/// O proxy escreve ao lado da DLL ou, sem permissão, em %TEMP% (ver src/proxy/log.cpp).
+pub fn log_do_alvo(d: &Driver) -> Option<(PathBuf, f64)> {
+    let pasta = d.dll.parent()?;
+    log_mais_recente(&[pasta.join("ghostframe.log"), std::env::temp_dir().join("ghostframe.log")])
 }
 
 /// Últimos `max` bytes do arquivo, sem a primeira linha (que pode vir cortada).
@@ -446,31 +471,46 @@ pub fn ler_steamvr(v: &Value, jogo: &str) -> Value {
     })
 }
 
-/// frames = 0 remove a trava; 1 = metade da taxa do headset; 2 = um terço.
-pub fn gravar_trava(arquivo: &Path, jogo: &str, frames: i64) -> io::Result<()> {
+/// Grava no steamvr.vrsettings. Só com o SteamVR fechado: aberto, ele regrava o arquivo
+/// ao sair, e o caminho certo é o IVRSettings (vr.rs). `None` remove a chave.
+pub fn gravar_steamvr(arquivo: &Path, valores: &[(&str, &str, Option<Value>)]) -> io::Result<()> {
     let mut v = ler_json(arquivo).ok_or_else(|| erro(format!("não consegui ler {}", arquivo.display())))?;
     fs::copy(arquivo, arquivo.with_extension("vrsettings.ghostframe.bak"))?;
     let raiz = v.as_object_mut().ok_or_else(|| erro("steamvr.vrsettings inválido"))?;
-    let app = raiz.entry(jogo).or_insert_with(|| json!({}));
-    let app = app.as_object_mut().ok_or_else(|| erro("steamvr.vrsettings inválido"))?;
-    if frames == 0 {
-        app.remove("framesToThrottle");
-        app.remove("additionalFramesToPredict");
-    } else {
-        app.insert("framesToThrottle".into(), json!(frames));
-        app.insert("additionalFramesToPredict".into(), json!(frames));
+    for (secao, chave, valor) in valores {
+        let s = raiz.entry(*secao).or_insert_with(|| json!({}));
+        let s = s.as_object_mut().ok_or_else(|| erro("steamvr.vrsettings inválido"))?;
+        match valor {
+            Some(x) => s.insert(chave.to_string(), x.clone()),
+            None => s.remove(*chave),
+        };
     }
     fs::write(arquivo, serde_json::to_string_pretty(&v)?)
 }
 
-// ---------------------------------------------------------------------------
-// Processos (só olhamos os nomes; nunca abrimos o processo do jogo)
+/// frames = 0 remove a trava; 1 = metade da taxa do headset; 2 = um terço.
+pub fn gravar_trava(arquivo: &Path, jogo: &str, frames: i64) -> io::Result<()> {
+    let v = (frames != 0).then(|| json!(frames));
+    gravar_steamvr(arquivo, &[(jogo, "framesToThrottle", v.clone()), (jogo, "additionalFramesToPredict", v)])
+}
 
-pub fn processos(s: &mut sysinfo::System) -> Value {
-    s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let nomes: Vec<String> = s.processes().values().map(|p| p.name().to_string_lossy().to_lowercase()).collect();
-    let tem = |f: &dyn Fn(&str) -> bool| nomes.iter().any(|n| f(n));
-    json!({ "steamvr": tem(&|n| n.starts_with("vrserver")) })
+pub fn base64(dados: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut s = String::with_capacity(dados.len().div_ceil(3) * 4);
+    for c in dados.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            s.push(if i <= c.len() { T[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+        }
+    }
+    s
+}
+
+/// Grava sem deixar o arquivo pela metade: o companion lê o ini a cada segundo.
+pub fn gravar_atomico(arquivo: &Path, conteudo: &str) -> io::Result<()> {
+    let tmp = arquivo.with_extension("tmp");
+    fs::write(&tmp, conteudo)?;
+    fs::rename(&tmp, arquivo)
 }
 
 // ---------------------------------------------------------------------------
@@ -568,6 +608,15 @@ mod testes {
         assert_eq!(r["stats"]["DirectMode::Present"], json!([[2.0, 71.9, 13.91, 12.0, 20.5]]));
         assert_eq!(r["avisos"].as_array().unwrap().len(), 1);
         assert_eq!(ler_log(""), Value::Null);
+    }
+
+    #[test]
+    fn base64_padrao() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
     }
 
     #[test]

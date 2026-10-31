@@ -1,5 +1,5 @@
-// UI do app de controle. Toda a lógica pesada está no Rust (src/core.rs);
-// aqui só desenhamos o estado que o comando `estado` devolve a cada segundo.
+// UI do app de controle. A lógica fica no Rust; aqui só desenhamos o `estado`,
+// que é lido a cada segundo enquanto a janela está visível.
 const { invoke } = window.__TAURI__.core;
 const janela = window.__TAURI__.window.getCurrentWindow();
 const $ = (s) => document.querySelector(s);
@@ -33,13 +33,23 @@ function ghostSvg(px) {
 }
 $$("[data-ghost]").forEach((el) => (el.innerHTML = ghostSvg(+el.dataset.ghost)));
 
+// ---------- DOM só muda quando o valor muda ----------
+const texto = (el, s) => { if (el.textContent !== s) el.textContent = s; };
+const html = (el, s) => { if (el._html !== s) el.innerHTML = el._html = s; };
+const classe = (el, c) => { if (el.className !== c) el.className = c; };
+const fmt = (v, d = 0) => (v == null ? "--" : v.toFixed(d).replace(".", ","));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const tag = (txt, c) => `<span class="tag ${c}">${esc(txt)}</span>`;
+const abaAtiva = (aba) => $("#aba-" + aba).classList.contains("ativa");
+
 // ---------- janela e abas ----------
 $("#btn-min").onclick = () => janela.minimize();
 $("#btn-max").onclick = () => janela.toggleMaximize();
 $("#btn-fechar").onclick = () => janela.close();
-$$(".menu button[data-aba]").forEach((b) => (b.onclick = () => {
-  $$(".menu button[data-aba]").forEach((x) => x.classList.toggle("ativa", x === b));
+$$(".abas button").forEach((b) => (b.onclick = () => {
+  $$(".abas button").forEach((x) => x.classList.toggle("ativa", x === b));
   $$(".aba").forEach((a) => a.classList.toggle("ativa", a.id === "aba-" + b.dataset.aba));
+  if (b.dataset.aba === "hud") previa();
   if (ultimo) render(ultimo);
 }));
 
@@ -66,126 +76,162 @@ async function chamar(cmd, args, botao) {
 }
 
 // ---------- configurações (ghostframe.ini) ----------
+// Depois da primeira leitura, o `config` local é a fonte da verdade.
 let config = {};
-const salvar = (valores) => {
+function salvar(valores) {
   Object.assign(config, valores);
-  return chamar("salvar_config", { valores });
-};
+  preencherConfig();
+  const r = chamar("salvar_config", { valores });
+  if (Object.keys(valores).some((k) => k.startsWith("hud."))) r.then(previa);
+  return r;
+}
+// Sliders salvam 150 ms depois do último movimento.
+const depois = (el, f, ms = 150) => { clearTimeout(el._t); el._t = setTimeout(f, ms); };
+const saida = (el) => (el.nextElementSibling.textContent = el.value + el.dataset.unidade);
 
 $$("input[type=checkbox][data-chave]").forEach((el) =>
   (el.onchange = () => salvar({ [el.dataset.chave]: el.checked ? "1" : "0" })));
 $$("input[type=number][data-chave]").forEach((el) =>
-  (el.onchange = () => salvar({ [el.dataset.chave]: String(el.value) })));
-$$(".seg[data-chave] button").forEach((b) => (b.onclick = () => {
-  salvar({ [b.parentElement.dataset.chave]: b.dataset.valor });
-  preencherConfig();
+  (el.onchange = () => salvar({ [el.dataset.chave]: el.value })));
+$$("input[type=range][data-chave]").forEach((el) => (el.oninput = () => {
+  config[el.dataset.chave] = el.value;
+  saida(el);
+  depois(el, () => salvar({ [el.dataset.chave]: el.value }));
 }));
+$$(".seg[data-chave] button").forEach((b) =>
+  (b.onclick = () => salvar({ [b.parentElement.dataset.chave]: b.dataset.valor })));
+$$("[data-item]").forEach((el) => (el.onchange = () =>
+  salvar({ "hud.itens": $$("[data-item]:checked").map((x) => x.dataset.item).join(",") })));
+// Desligado / Auto / Manual = framegen.ativo + framegen.modo
+$$("#fg-modo button").forEach((b) => (b.onclick = () => salvar(b.dataset.valor === "off"
+  ? { "framegen.ativo": "0" }
+  : { "framegen.ativo": "1", "framegen.modo": b.dataset.valor })));
+
+const modoFrameGen = () => (config["framegen.ativo"] === "1" ? config["framegen.modo"] : "off");
 
 function preencherConfig() {
   $$("input[type=checkbox][data-chave]").forEach((el) => (el.checked = config[el.dataset.chave] === "1"));
-  $$("input[type=number][data-chave]").forEach((el) => { if (document.activeElement !== el) el.value = config[el.dataset.chave]; });
+  $$("input[type=number][data-chave]").forEach((el) => (el.value = config[el.dataset.chave]));
+  $$("input[type=range][data-chave]").forEach((el) => { el.value = config[el.dataset.chave]; saida(el); });
   $$(".seg[data-chave]").forEach((g) =>
     [...g.children].forEach((b) => b.classList.toggle("ativo", b.dataset.valor === config[g.dataset.chave])));
-  cadencia();
+  const itens = (config["hud.itens"] || "").split(",");
+  $$("[data-item]").forEach((el) => (el.checked = itens.includes(el.dataset.item)));
+  const modo = modoFrameGen();
+  $$("#fg-modo button").forEach((b) => b.classList.toggle("ativo", b.dataset.valor === modo));
+  $("#fg-auto").hidden = modo !== "auto";
+  $("#fg-manual").hidden = modo !== "manual";
+  $(".previa").classList.toggle("off", config["hud.ativo"] !== "1");
 }
 
-// Cadência: R = frame do jogo, S = sintético. Anima numa velocidade de leitura, não na real.
-let passo = 0;
-function cadencia() {
-  const n = +config["framegen.multiplicador"] || 2;
-  const ligado = config["framegen.ativo"] === "1";
-  const el = $("#cadencia");
-  if (el.children.length !== 24) el.innerHTML = "<i></i>".repeat(24);
-  [...el.children].forEach((c, i) => {
-    const real = !ligado || i % n === 0;
-    c.className = (real ? "r" : "s") + (i === passo % 24 ? " agora" : "");
-  });
-  $("#cadencia-texto").textContent = ligado
-    ? n === 2 ? "1 real : 1 sintético" : "1 real : 2 sintéticos"
-    : "só reais";
-}
-setInterval(() => { passo++; if ($("#aba-framegen").classList.contains("ativa")) cadencia(); }, 180);
-
-// ---------- otimização ----------
-$$("#trava button").forEach((b) => (b.onclick = () => chamar("trava_fps", { frames: +b.dataset.valor })));
+// ---------- SteamVR ao vivo (ou steamvr.vrsettings com ele fechado) ----------
+const vrSet = (chave, valor) => chamar("vr_set", { chave, valor });
 $("#jogo").onchange = (ev) => salvar({ "app.jogo": ev.target.value });
+$$("#trava button").forEach((b) => (b.onclick = () => vrSet("trava", +b.dataset.valor)));
+$("#ss-manual").onchange = (ev) => vrSet("supersampleManual", ev.target.checked);
+$("#ms").onchange = (ev) => vrSet("motionSmoothing", ev.target.checked);
+$("#ss").oninput = (ev) => {
+  const el = ev.target;
+  el._mexido = Date.now();
+  texto($("#ss-valor"), el.value + "%");
+  depois(el, () => vrSet("supersample", el.value / 100), 200);
+};
 
-// ---------- instalação ----------
+// ---------- prévia do HUD: no máximo um pedido em voo, mais um na fila ----------
+let previaOcupada = false, previaDeNovo = false;
+async function previa() {
+  if (previaOcupada) { previaDeNovo = true; return; }
+  previaOcupada = true;
+  try {
+    const p = await invoke("hud_previa");
+    const bin = atob(p.rgba), px = new Uint8ClampedArray(bin.length);
+    for (let i = 0; i < bin.length; i++) px[i] = bin.charCodeAt(i);
+    const c = $("#hud-previa");
+    if (c.width !== p.largura || c.height !== p.altura) { c.width = p.largura; c.height = p.altura; }
+    c.getContext("2d").putImageData(new ImageData(px, p.largura, p.altura), 0, 0);
+  } catch (e) {
+    console.error(e);
+  }
+  previaOcupada = false;
+  if (previaDeNovo) { previaDeNovo = false; previa(); }
+}
+
+// ---------- instalação e log ----------
 $("#btn-instalar").onclick = (e) => chamar("instalar", {}, e.currentTarget);
 $("#btn-desinstalar").onclick = (e) => chamar("desinstalar", {}, e.currentTarget);
 $("#btn-relatorio").onclick = (e) => chamar("relatorio", {}, e.currentTarget);
+$("#drivers").onchange = (ev) => salvar({ "app.alvo": ev.target.value });
 $("#btn-alvo").onclick = () => { const v = $("#alvo-manual").value.trim(); if (v) salvar({ "app.alvo": v }); };
 $("#btn-pasta-driver").onclick = () => ultimo?.alvo && invoke("abrir_pasta", { caminho: ultimo.alvo.dll });
 $("#btn-pasta-app").onclick = () => ultimo && invoke("abrir_pasta", { caminho: ultimo.pastaApp });
 $("#btn-pasta-log").onclick = () => ultimo?.log && invoke("abrir_pasta", { caminho: ultimo.log.caminho });
 
 // ---------- gráficos ----------
+const CIANO = "#00f0ff", VIOLETA = "#a08fff";
+// Redesenha só quando o tamanho ou o último ponto mudam.
 function grafico(canvas, series, { min = 0, max, guia } = {}) {
-  const dpr = devicePixelRatio || 1;
   const w = canvas.clientWidth, h = canvas.clientHeight;
-  if (canvas.width !== w * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+  const chave = [w, h, guia, ...series.map((s) => s.pts.length + ":" + s.pts.at(-1)?.[0])].join();
+  if (canvas._chave === chave) return;
+  canvas._chave = chave;
+  const dpr = devicePixelRatio || 1;
+  canvas.width = w * dpr; canvas.height = h * dpr;
   const g = canvas.getContext("2d");
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, w, h);
-  const pts = series.flatMap((s) => s.pts);
-  const esq = 30;
-  // grade
+  const esq = 26;
   g.font = "10px Consolas, monospace";
-  g.fillStyle = "#3d5c66";
-  g.strokeStyle = "rgba(0,240,255,.08)";
+  g.fillStyle = "#4a6670";
+  g.strokeStyle = "rgba(0,240,255,.07)";
   g.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
-    const y = 6 + ((h - 12) * i) / 4;
+    const y = Math.round(6 + ((h - 12) * i) / 4) + 0.5;
     g.beginPath(); g.moveTo(esq, y); g.lineTo(w, y); g.stroke();
     g.fillText(Math.round(max - ((max - min) * i) / 4), 0, y + 3);
   }
+  const Y = (v) => 6 + (1 - (Math.min(Math.max(v, min), max) - min) / (max - min)) * (h - 12);
+  if (guia) {
+    g.setLineDash([3, 3]); g.strokeStyle = "rgba(255,255,255,.3)";
+    g.beginPath(); g.moveTo(esq, Y(guia)); g.lineTo(w, Y(guia)); g.stroke();
+    g.setLineDash([]);
+  }
+  const pts = series.flatMap((s) => s.pts);
   if (!pts.length) {
-    g.fillStyle = "#5b7c86";
-    g.fillText("sem dados: instale o proxy e abra o SteamVR", esq + 12, h / 2);
+    g.fillText("sem dados", esq + 12, h / 2);
     return;
   }
   const t0 = Math.min(...pts.map((p) => p[0])), t1 = Math.max(...pts.map((p) => p[0]), t0 + 1);
-  const X = (t) => esq + ((t - t0) / (t1 - t0)) * (w - esq - 4);
-  const Y = (v) => 6 + (1 - (Math.min(Math.max(v, min), max) - min) / (max - min)) * (h - 12);
-  if (guia != null) {
-    g.setLineDash([4, 4]); g.strokeStyle = "#ffd23f"; g.globalAlpha = .7;
-    g.beginPath(); g.moveTo(esq, Y(guia)); g.lineTo(w, Y(guia)); g.stroke();
-    g.setLineDash([]); g.globalAlpha = 1;
-  }
+  const X = (t) => esq + ((t - t0) / (t1 - t0)) * (w - esq - 2);
   for (const s of series) {
     if (s.banda) {
-      g.fillStyle = "rgba(0,240,255,.16)";
+      g.fillStyle = "rgba(0,240,255,.14)";
       g.beginPath();
       s.banda.forEach(([t, , hi], i) => (i ? g.lineTo(X(t), Y(hi)) : g.moveTo(X(t), Y(hi))));
       [...s.banda].reverse().forEach(([t, lo]) => g.lineTo(X(t), Y(lo)));
       g.fill();
     }
     if (!s.pts.length) continue;
-    g.strokeStyle = s.cor; g.lineWidth = 2; g.shadowColor = s.cor; g.shadowBlur = s.brilho ? 10 : 0;
+    g.strokeStyle = s.cor; g.lineWidth = 1.5;
     g.beginPath();
     s.pts.forEach(([t, v], i) => (i ? g.lineTo(X(t), Y(v)) : g.moveTo(X(t), Y(v))));
     g.stroke();
-    g.shadowBlur = 0;
-    if (s.area) {
-      const grad = g.createLinearGradient(0, 0, 0, h);
-      grad.addColorStop(0, "rgba(0,240,255,.22)"); grad.addColorStop(1, "rgba(0,240,255,0)");
-      g.lineTo(X(s.pts.at(-1)[0]), h); g.lineTo(X(s.pts[0][0]), h); g.closePath();
-      g.fillStyle = grad; g.fill();
-    }
   }
+}
+
+// fps do jogo vem só do valor atual (vr.timing): guardamos até 5 min aqui,
+// no mesmo relógio do log quando ele existe, para o gráfico alinhar com o headset.
+let serieJogo = [];
+function guardarJogo(e, vivo) {
+  const t = e.vr?.timing;
+  if (!t) return;
+  const agora = vivo ? vivo.t + e.log.idade : Date.now() / 1000;
+  const ult = serieJogo.at(-1);
+  if (ult && (agora < ult[0] || agora - ult[0] > 30)) serieJogo = []; // relógio mudou ou janela ficou oculta
+  serieJogo.push([agora, t.fpsJogo]);
+  if (serieJogo.length > 300) serieJogo.shift();
 }
 
 // ---------- render ----------
 let ultimo = null;
-const ultimoValor = (serie, i = 1) => (serie && serie.length ? serie.at(-1)[i] : null);
-const fmt = (v, d = 0) => (v == null ? "--" : v.toFixed(d));
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-
-function card(id, classe, texto) {
-  const el = $("#st-" + id);
-  el.className = "card " + classe;
-  el.querySelector("p").textContent = texto;
-}
 
 const PROXY = {
   instalado: ["ok", "instalado"],
@@ -194,128 +240,149 @@ const PROXY = {
   quebrado: ["erro", "falta a DLL _real"],
   sem_dll: ["erro", "DLL não encontrada"],
 };
-
-// suporte do driver (src/core.rs, CONHECIDOS) -> [classe do card, rótulo]
+// suporte do driver (src/core.rs, CONHECIDOS) -> [classe, rótulo]
 const SUPORTE = {
   alvo: ["ok", "alvo principal"],
   streaming: ["alerta", "não testado"],
   nativo: ["alerta", "sem ganho"],
   desconhecido: ["alerta", "desconhecido"],
 };
+const suporte = (s) => SUPORTE[s] || SUPORTE.desconhecido;
+
+function status(id, c, valor) {
+  const el = $("#st-" + id);
+  classe(el, c);
+  texto(el.querySelector("p"), valor);
+}
 
 function render(e) {
-  $("#versao").textContent = "v" + e.versao;
-  const vivo = e.log && e.log.idade < 6 && e.log.dados ? e.log.dados : null;
+  texto($("#versao"), "v" + e.versao);
+  const vivo = e.log && e.log.idade < 6 ? e.log.dados : null;
   const stats = vivo?.stats || {};
   const present = stats["DirectMode::Present"] || stats["VirtualDisplay::Present"] || [];
   const poses = stats["HMD TrackedDevicePoseUpdated"] || [];
-  const fps = ultimoValor(present), hz = ultimoValor(poses), ft = ultimoValor(present, 2);
   const estado = e.alvo?.estado;
+  const vr = e.vr, timing = vr?.timing, hz = vr?.hz;
+  guardarJogo(e, vivo);
+  $("#logo").classList.toggle("vivo", estado === "instalado" && !!vivo?.hmd);
 
-  // status
-  card("steamvr", e.processos.steamvr ? "ok" : "", e.processos.steamvr ? "rodando" : "fechado");
-  if (!e.processos.steamvr) card("headset", "", "aguardando SteamVR");
-  else if (estado !== "instalado") card("headset", "alerta", "instale o proxy");
-  else if (vivo?.hmd && hz > 0) card("headset", "ok", `conectado · ${fmt(hz)} Hz`);
-  else if (vivo?.hmd) card("headset", "alerta", "sem tracking");
-  else card("headset", "alerta", "não detectado");
-  if (!e.alvo) card("driver", "erro", "nenhum");
-  else card("driver", SUPORTE[e.alvo.suporte][0], `${e.alvo.rotulo} · ${SUPORTE[e.alvo.suporte][1]}`);
-  if (!e.alvo) card("proxy", "erro", "alvo não encontrado");
-  else card("proxy", ...(PROXY[estado] || ["", estado]));
+  // ----- painel -----
+  const aberto = e.processos.steamvr;
+  status("steamvr", aberto ? "ok" : "", aberto ? "rodando" : "fechado");
+  if (vr) status("headset", "ok", `${vr.modelo} · ${fmt(vr.hz)} Hz`);
+  else if (!aberto) status("headset", "", "--");
+  else if (vivo?.hmd) status("headset", poses.length ? "ok" : "alerta", poses.length ? "conectado" : "sem tracking");
+  else status("headset", "alerta", "não detectado");
+  if (!e.alvo) status("driver", "erro", "nenhum");
+  else {
+    const [c, rotulo] = suporte(e.alvo.suporte);
+    status("driver", c, e.alvo.suporte === "alvo" ? e.alvo.rotulo : `${e.alvo.rotulo} · ${rotulo}`);
+  }
+  status("proxy", ...(e.alvo ? PROXY[estado] || ["alerta", estado] : ["erro", "sem alvo"]));
 
-  const tudoOk = e.processos.steamvr && vivo?.hmd && estado === "instalado";
-  $("#led-sys").className = "led " + (tudoOk ? "ok" : e.alvo ? "alerta" : "erro");
-  $("#sys-texto").textContent = tudoOk ? "SYS//STREAMING" : e.processos.steamvr ? "SYS//STANDBY" : "SYS//IDLE";
-  $("#fala").textContent =
-    !e.alvo ? "não achei nenhum driver de streaming... me mostra onde ele mora?"
-    : estado === "sobrescrito" ? "o driver se atualizou e me expulsou. reinstala?"
-    : estado !== "instalado" ? "boo. me instala no driver pra eu ver os frames."
-    : tudoOk && fps ? `${fmt(fps)} frames/s passando por mim. boo!`
-    : e.processos.steamvr ? "SteamVR aberto. cadê o headset?"
-    : "tudo calmo. abre o SteamVR.";
-
-  // métricas e gráficos (só desenha a aba visível)
-  $("#m-fps").textContent = fmt(fps);
-  $("#m-pose").textContent = fmt(hz);
-  $("#m-ft").textContent = fmt(ft, 1);
-  $("#m-ft-sub").textContent = ft == null ? "ms" : `ms · ${fmt(ultimoValor(present, 3), 1)}–${fmt(ultimoValor(present, 4), 1)}`;
-  if ($("#aba-painel").classList.contains("ativa")) {
+  texto($("#m-fps"), fmt(present.at(-1)?.[1]));
+  texto($("#m-jogo"), fmt(timing?.fpsJogo));
+  texto($("#m-ft"), fmt(present.at(-1)?.[2], 1));
+  texto($("#m-cpugpu"), timing ? `${fmt(timing.msCpu, 1)} / ${fmt(timing.msGpu, 1)}` : "--");
+  texto($("#m-reproj"), timing ? `${timing.reprojetados} / ${timing.perdidos}` : "--");
+  texto($("#leg-jogo"), serieJogo.length ? "jogo" : "");
+  texto($("#leg-fps-guia"), hz ? `${fmt(hz)} Hz` : "");
+  texto($("#leg-ft-guia"), hz ? `${fmt(1000 / hz, 1)} ms` : "");
+  if (abaAtiva("painel")) {
     grafico($("#graf-fps"), [
-      { pts: poses.map((p) => [p[0], p[1] / 10]), cor: "#2a7fff" },
-      { pts: present.map((p) => [p[0], p[1]]), cor: "#00f0ff", brilho: true, area: true },
-    ], { max: 120, guia: 72 });
+      { pts: present.map((p) => [p[0], p[1]]), cor: CIANO },
+      { pts: serieJogo, cor: VIOLETA },
+    ], { max: Math.max(120, (hz || 0) + 20), guia: hz });
     grafico($("#graf-ft"), [
-      { pts: present.map((p) => [p[0], p[2]]), banda: present.map((p) => [p[0], p[3], p[4]]), cor: "#00f0ff", brilho: true },
-    ], { max: 50, guia: 1000 / 72 });
+      { pts: present.map((p) => [p[0], p[2]]), banda: present.map((p) => [p[0], p[3], p[4]]), cor: CIANO },
+    ], { max: 40, guia: hz && 1000 / hz });
   }
 
-  const tag = (txt, c) => `<span class="tag ${c}">${esc(txt)}</span>`;
-  const d = e.log?.dados;
-  $("#sessao").innerHTML = `
-    <dt>vídeo</dt><dd>${d?.video ? esc(d.video) : "—"}</dd>
-    <dt>depth</dt><dd>${d?.depth == null ? "—" : d.depth ? "sim" : "não"}</dd>
-    <dt>motion smoothing</dt><dd>${d?.motionSmoothing ? esc(d.motionSmoothing) : "—"}</dd>
-    <dt>resolução</dt><dd>${d?.render ? esc(d.render) : "—"}</dd>
-    <dt>avisos</dt><dd>${d?.avisos?.length ? tag(d.avisos.length, "alerta") : "0"}</dd>`;
+  // ----- desempenho -----
+  const a = e.auto;
+  texto($("#fg-alvo"), hz ? `${fmt(hz)} Hz` : "--");
+  texto($("#fg-rec"), a ? a.recomendado + "×" : "--");
+  texto($("#fg-motivo"), a?.motivo || "");
 
-  // otimização
-  const s = e.steamvr;
+  // Ao vivo com o SteamVR conectado; pelo arquivo só com ele fechado (ele regrava ao sair).
+  const s = vr?.config ?? e.steamvr;
+  const pode = !!vr || (!aberto && !!e.steamvr);
+  const fonte = vr ? ["ok", "ao vivo"] : pode ? ["", "arquivo"] : aberto ? ["alerta", "aguardando"] : ["erro", "sem config"];
+  classe($("#vr-fonte"), "tag " + fonte[0]);
+  texto($("#vr-fonte"), fonte[1]);
+
+  html($("#jogo"), (e.jogos || []).map((j) =>
+    `<option value="${esc(j.chave)}"${j.chave === config["app.jogo"] ? " selected" : ""}>${esc(j.nome)}</option>`).join(""));
+  $("#jogo").disabled = !e.jogos?.length;
+
+  const auto = modoFrameGen() === "auto";
+  $("#trava-auto").hidden = !auto;
   $$("#trava button").forEach((b) => {
-    b.classList.toggle("ativo", s && String(s.trava) === b.dataset.valor);
-    b.disabled = !s || e.processos.steamvr;
+    b.classList.toggle("ativo", String(s?.trava) === b.dataset.valor);
+    b.disabled = !pode || auto;
+    if (b.dataset.valor !== "0") texto(b.lastChild, hz ? `${fmt(hz / (+b.dataset.valor + 1))} fps` : "");
   });
-  $("#trava-nota").textContent = !s ? "steamvr.vrsettings não encontrado"
-    : e.processos.steamvr ? "feche o SteamVR para mudar" : "";
-  const jogos = JSON.stringify([e.jogos, config["app.jogo"]]);
-  if ($("#jogo").dataset.lista !== jogos) {
-    $("#jogo").dataset.lista = jogos;
-    $("#jogo").innerHTML = (e.jogos || []).map((j) =>
-      `<option value="${esc(j.chave)}" ${j.chave === config["app.jogo"] ? "selected" : ""}>${esc(j.nome)}</option>`).join("");
-  }
-  $("#steamvr-info").innerHTML = s ? `
-    <dt>motion smoothing</dt><dd>${s.motionSmoothing == null ? "padrão" : s.motionSmoothing ? "ligado" : "desligado"}</dd>
-    <dt>supersampling</dt><dd>${s.supersampleManual ? Math.round((s.supersample ?? 1) * 100) + "%" : "auto"}</dd>`
-    : "<dt>config</dt><dd>não encontrada</dd>";
 
-  // instalação
-  const lista = JSON.stringify([e.drivers, config["app.alvo"]]);
-  if ($("#drivers").dataset.lista !== lista) {
-    $("#drivers").dataset.lista = lista;
-    const auto = !config["app.alvo"];
-    $("#drivers").innerHTML =
-      `<label><input type="radio" name="alvo" value="" ${auto ? "checked" : ""}><b>AUTO</b></label>` +
-      e.drivers.map((dr) => `<label title="${esc(dr.dll)}"><input type="radio" name="alvo" value="${esc(dr.raiz)}" ${config["app.alvo"] === dr.raiz ? "checked" : ""}>
-        <b>${esc(dr.rotulo)}</b>${tag(SUPORTE[dr.suporte][1], SUPORTE[dr.suporte][0])}${dr.embutido ? tag("SteamVR", "") : ""}
-        <small>${esc(dr.raiz)}</small></label>`).join("");
-    $$("#drivers input").forEach((r) => (r.onchange = () => salvar({ "app.alvo": r.value })));
-  }
-  $("#proxy-tag").innerHTML = e.alvo ? tag((PROXY[estado] || ["", estado])[1], (PROXY[estado] || ["alerta"])[0] || "alerta") : "";
-  $("#proxy-texto").textContent = !e.alvo ? "escolha um alvo"
-    : e.processos.steamvr ? "feche o SteamVR para instalar"
-    : !e.dllEmbutida ? "build sem a DLL embutida: use o .exe da release"
-    : e.alvo.embutido && estado !== "instalado" ? "driver do SteamVR: atualizações do SteamVR desfazem a instalação"
-    : "";
-  $("#btn-instalar").textContent = estado === "instalado" ? "ATUALIZAR" : estado === "sobrescrito" ? "REINSTALAR" : "INSTALAR";
-  $("#btn-instalar").disabled = e.processos.steamvr || !e.dllEmbutida || !["original", "instalado", "sobrescrito"].includes(estado);
-  $("#btn-desinstalar").disabled = e.processos.steamvr || !["instalado", "sobrescrito"].includes(estado);
+  const ss = $("#ss"), manual = !!s?.supersampleManual;
+  $("#ss-manual").checked = manual;
+  $("#ss-manual").disabled = !pode;
+  ss.disabled = !pode || !manual;
+  if (!(Date.now() - (ss._mexido || 0) < 1500)) ss.value = Math.round((s?.supersample ?? 1) * 100);
+  texto($("#ss-valor"), (manual ? ss.value + "%" : "auto") + (vr?.render ? ` · ${vr.render.join("×")}` : ""));
+  $("#ms").checked = !!s && (s.motionSmoothing ?? true); // ausente no arquivo = padrão do SteamVR (ligado)
+  $("#ms").disabled = !pode;
 
-  // log
-  $("#log-caminho").textContent = e.log ? e.log.caminho : "";
-  $("#avisos").innerHTML = (d?.avisos || []).map((a) => `<li>${esc(a)}</li>`).join("");
-  if ($("#aba-log").classList.contains("ativa") && d?.linhas) {
+  // ----- HUD -----
+  const erro = e.hud?.erro;
+  const hudTag = config["hud.ativo"] !== "1" ? ["", ""] : erro ? ["erro", "erro"] : e.hud?.conectado ? ["ok", "no SteamVR"] : ["alerta", "aguardando SteamVR"];
+  classe($("#hud-tag"), "tag " + hudTag[0]);
+  texto($("#hud-tag"), hudTag[1]);
+  $("#hud-tag").title = erro || "";
+  texto($("#hud-erro"), erro || "");
+
+  // ----- instalação -----
+  html($("#drivers"),
+    `<label><input type="radio" name="alvo" value=""${config["app.alvo"] ? "" : " checked"}><b>Automático</b></label>` +
+    e.drivers.map((dr) => `<label><input type="radio" name="alvo" value="${esc(dr.raiz)}"${config["app.alvo"] === dr.raiz ? " checked" : ""}>
+      <b>${esc(dr.rotulo)}</b>${tag(suporte(dr.suporte)[1], suporte(dr.suporte)[0])}${dr.embutido ? tag("SteamVR", "") : ""}
+      <small>${esc(dr.raiz)}</small></label>`).join(""));
+
+  const [pc, pr] = e.alvo ? PROXY[estado] || ["alerta", estado] : ["", ""];
+  classe($("#proxy-tag"), "tag " + pc);
+  texto($("#proxy-tag"), pr);
+  texto($("#proxy-texto"), !e.alvo ? "Escolha um driver alvo."
+    : aberto ? "Feche o SteamVR para instalar ou remover."
+    : !e.dllEmbutida ? "Build sem a DLL embutida: use o .exe da release."
+    : e.alvo.embutido && estado !== "instalado" ? "Driver do SteamVR: atualizações do SteamVR desfazem a instalação."
+    : "");
+  texto($("#btn-instalar"), estado === "instalado" ? "Atualizar" : estado === "sobrescrito" ? "Reinstalar" : "Instalar");
+  $("#btn-instalar").disabled = aberto || !e.dllEmbutida || !["original", "instalado", "sobrescrito"].includes(estado);
+  $("#btn-desinstalar").disabled = aberto || !["instalado", "sobrescrito"].includes(estado);
+  $("#btn-pasta-driver").disabled = !e.alvo;
+
+  // ----- log -----
+  const d = e.log?.dados;
+  texto($("#log-caminho"), e.log?.caminho || "");
+  $("#btn-pasta-log").disabled = !e.log;
+  const item = (k, v) => `<div><dt>${k}</dt><dd>${esc(v ?? "--")}</dd></div>`;
+  html($("#sessao"), d ? item("Vídeo", d.video) + item("Depth", d.depth == null ? null : d.depth ? "sim" : "não")
+    + item("Motion smoothing", d.motionSmoothing) : "");
+  html($("#avisos"), (d?.avisos || []).map((x) => `<li>${esc(x.trim())}</li>`).join(""));
+  if (abaAtiva("log") && d?.linhas) {
     const t = $("#terminal");
     const noFim = t.scrollTop + t.clientHeight >= t.scrollHeight - 20;
-    t.innerHTML = d.linhas.map((l) => {
+    html(t, d.linhas.map((l) => {
       const c = l.includes("!!") ? "av" : l.includes("ERRO") ? "er" : l.includes("STATS") ? "st" : "";
       return c ? `<span class="${c}">${esc(l)}</span>` : esc(l);
-    }).join("\n");
+    }).join("\n"));
     if (noFim) t.scrollTop = t.scrollHeight;
   }
 }
 
+// ---------- ciclo: 1 s, parado com a janela oculta/minimizada ----------
 let primeira = true;
 async function atualizar() {
+  if (document.hidden) return;
   try {
     const e = await invoke("estado");
     if (primeira) { config = e.config; preencherConfig(); primeira = false; }
@@ -326,11 +393,6 @@ async function atualizar() {
   }
 }
 setInterval(atualizar, 1000);
+document.addEventListener("visibilitychange", atualizar);
+addEventListener("resize", () => ultimo && render(ultimo));
 atualizar();
-
-// ---------- rodapé ----------
-$("#ticker").textContent = [
-  "GHOSTFRAME//VR", "extrapolação, não interpolação: zero frame de atraso", "nunca toca no processo do jogo",
-  "tudo roda dentro do vrserver.exe", "36 → 72 fps", "boo", "frames reais + frames fantasmas",
-].join("   ✦   ");
-setInterval(() => ($("#relogio").textContent = new Date().toLocaleTimeString("pt-BR")), 1000);

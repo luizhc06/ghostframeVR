@@ -4,7 +4,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![cfg_attr(not(windows), allow(dead_code))]
 
+mod auto;
+mod companion;
 mod core;
+mod hud;
+mod vr;
 
 #[cfg(not(windows))]
 fn main() {
@@ -19,12 +23,17 @@ fn main() {
 #[cfg(windows)]
 mod win {
     use crate::core::{self, Driver};
+    use crate::{companion, hud, vr};
     use serde_json::{json, Map, Value};
     use std::os::windows::process::CommandExt;
     use std::path::{Path, PathBuf};
     use std::process::Command;
-    use std::sync::Mutex;
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::time::Duration;
     use std::{fs, io};
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::{AppHandle, Manager, RunEvent, WebviewWindowBuilder};
 
     static PROXY_DLL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/proxy.dll"));
     const SEM_JANELA: u32 = 0x0800_0000; // CREATE_NO_WINDOW
@@ -44,41 +53,41 @@ mod win {
     fn config() -> Map<String, Value> {
         core::config(&fs::read_to_string(arquivo_ini()).unwrap_or_default())
     }
-    fn alvo(cfg: &Map<String, Value>, ovr: &core::OpenVrPaths) -> Option<Driver> {
-        match cfg.get("app.alvo").and_then(Value::as_str).filter(|s| !s.is_empty()) {
-            Some(p) => Some(core::driver_em(Path::new(p))),
-            None => core::alvo_padrao(&ovr.drivers).cloned(),
-        }
-    }
     fn vrsettings(ovr: &core::OpenVrPaths) -> Option<PathBuf> {
         ovr.config.as_ref().map(|c| c.join("steamvr.vrsettings"))
     }
     fn steamvr_aberto() -> bool {
-        core::processos(&mut sysinfo::System::new())["steamvr"] == true
+        vr::processo_rodando("vrserver.exe")
+    }
+    fn jogo(cfg: &Map<String, Value>) -> String {
+        cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT).to_string()
     }
 
+    struct Companion {
+        painel: Arc<Mutex<companion::Painel>>,
+        pedidos: Mutex<mpsc::Sender<companion::Gravar>>,
+    }
+
+    // Comandos async: rodam fora da thread da janela (leem arquivos, esperam o companion).
     #[tauri::command]
-    fn estado(sys: tauri::State<Mutex<sysinfo::System>>) -> Value {
+    async fn estado(c: tauri::State<'_, Companion>) -> Result<Value, String> {
         let ovr = openvrpaths();
         let cfg = config();
-        let alvo = alvo(&cfg, &ovr);
-        let log = alvo.as_ref().and_then(|d| {
-            let pasta = d.dll.parent()?.to_path_buf();
-            core::log_mais_recente(&[pasta.join("ghostframe.log"), std::env::temp_dir().join("ghostframe.log")])
-        });
+        let alvo = core::alvo(&cfg, &ovr);
+        let log = alvo.as_ref().and_then(core::log_do_alvo);
         let log = log.map(|(p, idade)| {
             let dados = core::ler_fim(&p, 512 * 1024).map(|t| core::ler_log(&t)).unwrap_or(Value::Null);
             json!({ "caminho": p, "idade": idade, "dados": dados })
         });
-        let jogo = cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT).to_string();
+        let jogo = jogo(&cfg);
         let vrs = vrsettings(&ovr).and_then(|p| core::ler_json(&p));
         let steamapps = ovr.config.as_ref().and_then(|c| c.parent()).map(|s| s.join("steamapps"));
         let jogos = vrs.as_ref().map(|v| core::jogos(v, steamapps.as_deref())).unwrap_or_default();
         let steamvr = vrs.map(|v| core::ler_steamvr(&v, &jogo));
-        json!({
+        let mut r = json!({
             "versao": env!("CARGO_PKG_VERSION"),
             "dllEmbutida": !PROXY_DLL.is_empty(),
-            "processos": core::processos(&mut sys.lock().unwrap()),
+            "processos": { "steamvr": steamvr_aberto() },
             "drivers": ovr.drivers.iter().map(Driver::json).collect::<Vec<_>>(),
             "alvo": alvo.map(|d| { let mut j = d.json(); j["estado"] = core::estado(&d.dll).codigo().into(); j }),
             "log": log,
@@ -86,7 +95,12 @@ mod win {
             "steamvr": steamvr,
             "jogos": jogos,
             "pastaApp": pasta_app(),
-        })
+        });
+        let p = c.painel.lock().unwrap_or_else(|e| e.into_inner());
+        r["vr"] = p.vr.clone();
+        r["auto"] = p.auto.clone();
+        r["hud"] = json!({ "conectado": p.hud_conectado, "erro": p.erro });
+        Ok(r)
     }
 
     #[tauri::command]
@@ -94,7 +108,7 @@ mod win {
         let mut cfg = config();
         cfg.extend(valores);
         fs::create_dir_all(pasta_app()).map_err(|e| e.to_string())?;
-        fs::write(arquivo_ini(), core::config_para_ini(&cfg)).map_err(|e| e.to_string())
+        core::gravar_atomico(&arquivo_ini(), &core::config_para_ini(&cfg)).map_err(|e| e.to_string())
     }
 
     fn executar(op: &str, dll: &Path) -> io::Result<String> {
@@ -125,7 +139,7 @@ mod win {
     }
 
     fn operar(op: &str) -> Result<String, String> {
-        let d = alvo(&config(), &openvrpaths()).ok_or("nenhum driver alvo encontrado")?;
+        let d = core::alvo(&config(), &openvrpaths()).ok_or("nenhum driver alvo encontrado")?;
         if steamvr_aberto() {
             return Err("feche o SteamVR antes: a DLL do driver fica travada enquanto ele roda".into());
         }
@@ -149,15 +163,61 @@ mod win {
         operar("desinstalar")
     }
 
+    /// Ajuste do SteamVR vindo da janela: ao vivo pelo companion; com o SteamVR
+    /// fechado, direto no steamvr.vrsettings (aberto, ele regravaria o arquivo ao sair).
     #[tauri::command]
-    fn trava_fps(frames: i64) -> Result<(), String> {
-        if steamvr_aberto() {
-            return Err("feche o SteamVR antes: ele regrava o steamvr.vrsettings ao sair".into());
+    async fn vr_set(chave: String, valor: Value, c: tauri::State<'_, Companion>) -> Result<(), String> {
+        let jogo = jogo(&config());
+        let num = || valor.as_f64().ok_or("valor inválido");
+        let sim = || valor.as_bool().ok_or("valor inválido");
+        let s = |sec: &str, k: &str, v| (sec.to_string(), k.to_string(), v);
+        let valores = match chave.as_str() {
+            "supersample" => vec![s("steamvr", "supersampleScale", vr::Valor::Float(num()?.clamp(0.2, 5.0) as f32))],
+            "supersampleManual" => vec![s("steamvr", "supersampleManualOverride", vr::Valor::Bool(sim()?))],
+            "motionSmoothing" => vec![s("steamvr", "motionSmoothing", vr::Valor::Bool(sim()?))],
+            "trava" => {
+                let n = vr::Valor::Int(num()?.clamp(0.0, 2.0) as i32);
+                vec![s(&jogo, "framesToThrottle", n), s(&jogo, "additionalFramesToPredict", n)]
+            }
+            _ => return Err(format!("ajuste desconhecido: {chave}")),
+        };
+        let (tx, rx) = mpsc::channel();
+        let pedido = companion::Gravar { valores: valores.clone(), resposta: tx };
+        if c.pedidos.lock().unwrap_or_else(|e| e.into_inner()).send(pedido).is_ok() {
+            match rx.recv_timeout(Duration::from_secs(2)) {
+                Ok(Ok(())) => return Ok(()),
+                Ok(Err(e)) if e != companion::SEM_SESSAO => return Err(e),
+                _ => {}
+            }
         }
-        let p = vrsettings(&openvrpaths()).ok_or("não achei a pasta de config do SteamVR")?;
-        let cfg = config();
-        let jogo = cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT);
-        core::gravar_trava(&p, jogo, frames).map_err(|e| e.to_string())
+        if steamvr_aberto() {
+            return Err("conectando ao SteamVR, tente de novo em alguns segundos".into());
+        }
+        let p = vrsettings(&openvrpaths()).ok_or("não achei a config do SteamVR")?;
+        let lista: Vec<_> = valores
+            .iter()
+            .map(|(sec, k, v)| {
+                let j = match *v {
+                    vr::Valor::Bool(b) => json!(b),
+                    vr::Valor::Int(i) => json!(i),
+                    vr::Valor::Float(f) => json!(f),
+                };
+                (sec.as_str(), k.as_str(), Some(j))
+            })
+            .collect();
+        core::gravar_steamvr(&p, &lista).map_err(|e| e.to_string())
+    }
+
+    /// A imagem exata que o headset vai mostrar (a janela não reimplementa o visual).
+    #[tauri::command]
+    async fn hud_previa(c: tauri::State<'_, Companion>) -> Result<Value, String> {
+        let mut m = c.painel.lock().unwrap_or_else(|e| e.into_inner()).metricas.clone();
+        if m.modo.is_empty() {
+            m = companion::exemplo();
+        }
+        let mut hud = hud::Hud::default();
+        let (px, w, h) = hud.desenhar(&m, &companion::itens(&config()));
+        Ok(json!({ "largura": w, "altura": h, "rgba": core::base64(px) }))
     }
 
     /// Junta log, vrserver.txt e configs numa pasta para anexar no GitHub.
@@ -178,7 +238,7 @@ mod win {
         if let Some(l) = &ovr.log {
             copiar(l.join("vrserver.txt"));
         }
-        if let Some(d) = alvo(&config(), &ovr) {
+        if let Some(d) = core::alvo(&config(), &ovr) {
             copiar(d.dll.with_file_name("ghostframe.log"));
             copiar(d.raiz.join("driver.vrdrivermanifest"));
         }
@@ -203,12 +263,74 @@ mod win {
             let _ = fs::write(&a[4], msg);
             std::process::exit(codigo);
         }
+        // --bandeja: aberto pelo SteamVR (autostart); fica só no ícone, sem WebView.
+        let bandeja = a.iter().any(|x| x == "--bandeja");
         tauri::Builder::default()
-            .manage(Mutex::new(sysinfo::System::new()))
+            // Uma cópia só: o autostart do SteamVR com o app já aberto só avisa a que está rodando.
+            .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+                if !args.iter().any(|x| x == "--bandeja") {
+                    abrir_janela(app);
+                }
+            }))
             .invoke_handler(tauri::generate_handler![
-                estado, salvar_config, instalar, desinstalar, trava_fps, relatorio, abrir_pasta
+                estado, salvar_config, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta
             ])
-            .run(tauri::generate_context!())
-            .expect("falha ao abrir a janela do ghostframeVR");
+            .setup(move |app| {
+                let painel = Arc::new(Mutex::new(companion::Painel::default()));
+                let caminhos = companion::Caminhos {
+                    app: pasta_app(),
+                    openvrpaths: local().join("openvr").join("openvrpaths.vrpath"),
+                };
+                // Aberto pelo SteamVR e sem janela: sai junto com ele, como os outros overlays.
+                let h = app.handle().clone();
+                let ao_fechar = Box::new(move || {
+                    if bandeja && h.get_webview_window("main").is_none() {
+                        h.exit(0);
+                    }
+                });
+                let pedidos = Mutex::new(companion::iniciar(caminhos, painel.clone(), ao_fechar));
+                app.manage(Companion { painel, pedidos });
+                let abrir = MenuItem::with_id(app, "abrir", "Abrir", true, None::<&str>)?;
+                let sair = MenuItem::with_id(app, "sair", "Sair", true, None::<&str>)?;
+                TrayIconBuilder::new()
+                    .icon(app.default_window_icon().cloned().ok_or("sem ícone")?)
+                    .tooltip("ghostframeVR")
+                    .menu(&Menu::with_items(app, &[&abrir, &sair])?)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, ev| match ev.id.as_ref() {
+                        "abrir" => abrir_janela(app),
+                        "sair" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|icone, ev| {
+                        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = ev {
+                            abrir_janela(icone.app_handle());
+                        }
+                    })
+                    .build(app)?;
+                if !bandeja {
+                    abrir_janela(app.handle());
+                }
+                Ok(())
+            })
+            .build(tauri::generate_context!())
+            .expect("falha ao iniciar o ghostframeVR")
+            .run(|_, ev| {
+                // Fechar a janela destrói o WebView (é ele que pesa na RAM); o app segue na bandeja.
+                if let RunEvent::ExitRequested { api, code: None, .. } = ev {
+                    api.prevent_exit();
+                }
+            });
+    }
+
+    fn abrir_janela(app: &AppHandle) {
+        if let Some(j) = app.get_webview_window("main") {
+            let _ = j.unminimize();
+            let _ = j.set_focus();
+            return;
+        }
+        if let Some(cfg) = app.config().app.windows.first() {
+            let _ = WebviewWindowBuilder::from_config(app, cfg).and_then(|b| b.build());
+        }
     }
 }

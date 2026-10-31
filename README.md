@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <b>Frame generation para headsets VR que fazem streaming pelo SteamVR — sem tocar no jogo.</b><br>
-  Seu PC renderiza 36 fps. Seu headset mostra 72.
+  <b>Frame generation para headsets VR que fazem streaming pelo SteamVR, sem tocar no jogo.</b><br>
+  Dobra ou triplica o fps dos jogos em VR, tirando trabalho da CPU e passando para a GPU.
 </p>
 
 <p align="center">
@@ -31,7 +31,9 @@
 
 ## 👻 Por que
 
-Jogos sociais em VR (mundos cheios, dezenas de avatares) derrubam o fps para 20–40 — quase sempre por **gargalo de CPU**. Upscalers como DLSS/FSR não ajudam (aliviam a GPU, não a CPU) e mods dentro do jogo são bloqueados por anti-cheat.
+Jogos sociais em VR (mundos cheios, dezenas de avatares) derrubam o fps, quase sempre por **gargalo de CPU**. Upscalers como DLSS/FSR não ajudam (aliviam a GPU, não a CPU) e mods dentro do jogo são bloqueados por anti-cheat.
+
+A ideia do ghostframeVR é mudar onde o trabalho acontece: o jogo entrega menos frames reais, no ritmo que a CPU aguenta, e a GPU, que nesses jogos costuma ter folga, gera os frames que faltam. O ganho (2× ou 3×) depende do seu PC e do headset.
 
 Headsets nativos resolvem isso com reprojeção (ASW, Motion Smoothing). Em **streaming via Wi-Fi**, essa camada é limitada ou inexistente. O ghostframeVR quer preencher esse buraco **fora do processo do jogo**.
 
@@ -39,16 +41,16 @@ Headsets nativos resolvem isso com reprojeção (ASW, Motion Smoothing). Em **st
 
 ```mermaid
 flowchart LR
-    A[🎮 Jogo<br/>36 fps] --> B[Compositor<br/>SteamVR]
+    A[🎮 Jogo<br/>frames reais] --> B[Compositor<br/>SteamVR]
     B --> C{{👻 ghostframeVR<br/>driver proxy}}
     C -->|frames reais + sintéticos| D[Driver de streaming<br/>ex.: Pico Connect]
-    D --> E[Encoder] --> F[📶 Wi-Fi] --> G[🥽 Headset<br/>72 fps]
+    D --> E[Encoder] --> F[📶 Wi-Fi] --> G[🥽 Headset<br/>fps × 2 ou × 3]
     style C fill:#7c5cff,stroke:#22d3ee,color:#fff
 ```
 
 1. O SteamVR carrega drivers como DLLs. O ghostframeVR se coloca **no lugar da DLL do driver de streaming** e carrega a original por trás.
-2. Todas as chamadas são repassadas — o driver original continua funcionando normalmente.
-3. Como cada frame passa por nós, podemos (fases futuras) **gerar frames intermediários por extrapolação** — optical flow acelerado por hardware + correção pela pose atual da cabeça — quando o jogo atrasa.
+2. Todas as chamadas são repassadas, e o driver original continua funcionando normalmente.
+3. Como cada frame passa por nós, podemos (fases futuras) **gerar frames na GPU por extrapolação**: optical flow acelerado por hardware mais correção pela pose atual da cabeça.
 
 Tudo roda dentro do `vrserver.exe` do SteamVR. **O processo do jogo nunca é tocado.**
 
@@ -58,11 +60,11 @@ Tudo roda dentro do `vrserver.exe` do SteamVR. **O processo do jogo nunca é toc
 
 | | Fase | Descrição |
 |:-:|---|---|
-| ✅ | **1 — Diagnóstico** | Proxy transparente que loga caminho de vídeo, taxa de frames, texturas, depth, poses e flags de Motion Smoothing |
-| 🔄 | **2 — Engenharia reversa** | Entender o `Present` → encode → envio do driver ([briefing](docs/RE_BRIEF.md)) |
-| ⏳ | **3 — Captura** | Capturar frames D3D11 + poses e gravar para testes offline |
-| ⏳ | **4 — Frame gen offline** | Protótipo de extrapolação com NVIDIA Optical Flow em frames gravados |
-| ⏳ | **5 — Injeção** | Inserir frames sintéticos ao vivo quando o jogo perde o vsync |
+| ✅ | **1. Diagnóstico** | Proxy transparente que loga caminho de vídeo, taxa de frames, texturas, depth, poses e flags de Motion Smoothing |
+| 🔄 | **2. Caminho dos frames** | Confirmar pelo log o que chega ao driver (frames, poses, tempos) pela interface pública do SteamVR. Abrir o driver só se o log mostrar bloqueio ([plano B](docs/RE_BRIEF.md)) |
+| ⏳ | **3. Captura** | Capturar frames D3D11 + poses e gravar para testes offline |
+| ⏳ | **4. Frame gen offline** | Protótipo de extrapolação com NVIDIA Optical Flow em frames gravados |
+| ⏳ | **5. Injeção** | Inserir frames sintéticos ao vivo quando o jogo perde o vsync |
 
 Acompanhe em [Issues](https://github.com/luizhc06/ghostframevr/issues) e [Milestones](https://github.com/luizhc06/ghostframevr/milestones).
 
@@ -72,8 +74,8 @@ Funciona com qualquer headset cujo lado do PC seja um **driver do SteamVR** e co
 
 | Driver | Status |
 |---|---|
-| Pico Connect (Pico 4) | 🎯 alvo principal — em teste |
-| ALVR, Steam Link, Meta Link / Air Link via SteamVR | 🤷 o proxy é genérico, mas o frame gen precisa ser validado em cada driver — [mande um relatório](https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml) |
+| Pico Connect (Pico 4) | 🎯 alvo principal, em teste |
+| ALVR, Steam Link, Meta Link / Air Link via SteamVR | 🤷 o proxy é genérico, mas o frame gen precisa ser validado em cada driver. [Mande um relatório](https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml) |
 | Index / Vive, Windows MR | ➖ sem ganho: já têm reprojeção própria no SteamVR |
 | Jogos no runtime Oculus/Meta ou VDXR (fora do SteamVR) | ❌ não passam pelo SteamVR |
 
@@ -88,10 +90,11 @@ Drivers que vêm dentro da pasta do SteamVR (Steam Link, Meta Link) são restaur
 
 1. Baixe o `ghostframeVR-<versão>.exe` da [última release](https://github.com/luizhc06/ghostframevr/releases) e abra. Não precisa instalar nada: a DLL do proxy vai embutida no `.exe`.
 2. Na aba **Instalação**, confira se o alvo detectado é o driver do seu headset (ex.: Pico Connect) e clique em **INSTALAR**. Se o driver estiver em `Program Files`, o Windows pede permissão de administrador. Antes de trocar qualquer arquivo, o app faz backup em `%LOCALAPPDATA%\ghostframeVR\backup`.
-3. Abra o Pico Connect e o SteamVR. A aba **Painel** mostra se o headset está conectado, o fps que chega nele e os gráficos de frame time.
-4. Para mandar um teste, use **GERAR RELATÓRIO** e anexe a pasta numa issue.
+3. Na aba **HUD**, ligue o HUD e, se quiser, **Iniciar com o SteamVR**. Daí em diante é só abrir o SteamVR e jogar.
+4. No headset, vire o pulso para o rosto como quem olha um relógio: o HUD aparece.
+5. Para mandar um teste, use **Gerar relatório** (aba Log) e anexe a pasta numa issue.
 
-As opções de frame gen ficam em `%LOCALAPPDATA%\ghostframeVR\ghostframe.ini`. A DLL ainda não lê esse arquivo: ele passa a valer quando o frame gen chegar.
+Fechar a janela deixa o app na bandeja, leve, cuidando do HUD. As opções ficam em `%LOCALAPPDATA%\ghostframeVR\ghostframe.ini`.
 
 ### Manual
 
@@ -114,10 +117,10 @@ Apague a nossa DLL e renomeie `driver_<nome>_real.dll` de volta para o nome orig
 |---|---|
 | `GetComponent("IVRVirtualDisplay_002") -> IMPLEMENTADO` | O driver usa o caminho *VirtualDisplay* (típico de streaming) |
 | `GetComponent("IVRDriverDirectModeComponent_009") -> IMPLEMENTADO` | O driver usa o caminho *DirectMode* |
-| `STATS ... Present  72.0/s` | Frames por segundo saindo para o headset |
+| `STATS ... Present  <n>/s` | Frames por segundo saindo para o headset |
 | `SubmitLayer ... depth=0x...` | Depth ≠ `0x0` → o jogo envia profundidade (frame gen bem melhor) |
 | `GetFrameTiming ... motionSmoothing=on` | SteamVR acha que o Motion Smoothing está ativo |
-| `!! versão diferente` | Interface desconhecida — o proxy entra em modo passthrough puro |
+| `!! versão diferente` | Interface desconhecida: o proxy entra em modo passthrough puro |
 
 Achou algo? [Abra um relatório de teste](https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml) com o log anexado. 🙏
 
@@ -145,7 +148,7 @@ $env:GF_PROXY_DLL = "..\build\Release\driver_ghostframe.dll"
 cargo build --release
 ```
 
-**Testes** (Linux — simulam SteamVR + driver falso):
+**Testes** (Linux, simulam SteamVR + driver falso):
 
 ```bash
 cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure
@@ -158,7 +161,7 @@ cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on
 src/proxy/       driver proxy (HmdDriverFactory + wrappers das interfaces OpenVR)
 app/             app de controle (Tauri 2): instala o proxy, status, gráficos, ghostframe.ini
 tests/           SteamVR e driver de streaming simulados
-docs/            briefing de engenharia reversa, assets
+docs/            plano B de engenharia reversa, assets
 third_party/     openvr_driver.h (Valve, BSD)
 cmake/           toolchain MinGW
 ```
@@ -169,7 +172,7 @@ cmake/           toolchain MinGW
 <details>
 <summary><b>Posso tomar ban em jogo com anti-cheat?</b></summary>
 
-O ghostframeVR não injeta nada no jogo, não lê nem altera sua memória e roda num processo separado (o do SteamVR), do mesmo jeito que qualquer driver de VR. Dito isso, ninguém pode dar garantia absoluta — use com consciência.
+O ghostframeVR não injeta nada no jogo, não lê nem altera sua memória e roda num processo separado (o do SteamVR), do mesmo jeito que qualquer driver de VR. Dito isso, ninguém pode dar garantia absoluta. Use com consciência.
 </details>
 
 <details>
