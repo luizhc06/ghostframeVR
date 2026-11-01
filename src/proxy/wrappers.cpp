@@ -511,6 +511,8 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
             double r = m_intervaloJogo / m_intervaloPresent;
             m_divisor = r < 2.5 ? 2 : 3;
         }
+        const int mult = g_opcoes.multiplicador.load(std::memory_order_relaxed);
+        if (mult >= 2 && g_estatFG.trava.load() == 0) m_divisor = uint32_t(mult); // manual sem trava do SteamVR
         m_alfaPasso = 1.0 / m_divisor;
         // Relógio próprio: sem trava e sem repetição (Present no ritmo do jogo), com o jogo
         // abaixo dos Hz do headset. Cada quadro real soma I/período - 1 de crédito; a parte
@@ -529,7 +531,7 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
         }
         const double per = PeriodoRelogio();
         m_extrasRelogio = 0;
-        if (per > 0 && g_estatFG.trava.load() == 0 && agora >= m_relogioPausaAte && m_intervaloJogo > 1.05 * per &&
+        if (per > 0 && mult < 2 && g_estatFG.trava.load() == 0 && agora >= m_relogioPausaAte && m_intervaloJogo > 1.05 * per &&
             m_intervaloPresent > 0.8 * m_intervaloJogo) {
             double c = m_credito + m_intervaloJogo / per - 1.0;
             c = c < 0 ? 0 : c > 2 ? 2 : c;
@@ -574,10 +576,16 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     uint32_t trava = t ? t->nFramesToThrottle : 0;
     if (chamadas++ < kVerboseCalls)
         GF_LOG("DirectMode::PostPresent throttle=%u predict=%u", trava, t ? t->nAdditionalFramesToPredict : 0);
-    g_estatFG.trava = trava;
     const bool novo = m_ultimoFoiNovo;
     m_ultimoFoiNovo = false;
-    const bool nossa = g_travaDoProxy.load(std::memory_order_relaxed);
+    // Manual 2x/3x sem trava do SteamVR (caso do Pico Connect): o proxy trava o jogo ele
+    // mesmo, segurando o compositor os vsyncs da fração e gerando em cada um. Só com o motor
+    // pronto: sem gerado, travar o jogo só tiraria fps.
+    const int mult = g_opcoes.multiplicador.load(std::memory_order_relaxed);
+    const bool travaPropria = trava == 0 && mult >= 2 && novo && !m_desistiu && MotorOk() && m_fg.Pronto() && m_nUltimas;
+    if (travaPropria) trava = uint32_t(mult - 1);
+    g_estatFG.trava = trava;
+    const bool nossa = travaPropria || g_travaDoProxy.load(std::memory_order_relaxed);
     // Sem trava: só o relógio próprio entrega algo aqui (gerado pronto depois de um quadro novo).
     const bool relogio = trava == 0 && novo && !m_desistiu && m_extrasRelogio > 0 && m_pendente && m_nUltimas;
     if ((trava == 0 && !relogio) || (trava > 0 && !nossa && (!novo || m_desistiu))) {
@@ -652,7 +660,8 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
         }
     }
     PostPresentReal(&um);
-    if (trava > extras) segurar(); // trava acima de 3: o resto só espera
+    // O driver recebeu trava 0: quem fecha a fração (o último vsync) é o proxy.
+    segurar();
     if (relogio) m_tSaida = NowSeconds();
 }
 

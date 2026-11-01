@@ -71,6 +71,14 @@ void LerOpcoes() {
         GF_LOG("FRAMEGEN %s pelo ghostframe.ini", fg ? "ligado" : "desligado");
         TravaPorJogo(fg);
     }
+    const std::string modo = IniValor(texto.c_str(), "framegen", "modo");
+    const int m = std::atoi(IniValor(texto.c_str(), "framegen", "multiplicador").c_str());
+    const int mult = modo == "manual" ? (m >= 3 ? 3 : 2) : 0;
+    if (mult != g_opcoes.multiplicador.exchange(mult))
+    {
+        if (mult) GF_LOG("FRAMEGEN manual %dx: o proxy trava o jogo nessa fração e gera o resto", mult);
+        else GF_LOG("FRAMEGEN auto: completa até os Hz do headset quando o jogo fica abaixo");
+    }
 }
 
 void Laco() {
@@ -133,6 +141,11 @@ void Laco() {
 } // namespace
 
 bool IniLigado(const char *texto, const char *secao, const char *chave) {
+    const std::string v = IniValor(texto, secao, chave);
+    return !v.empty() && v[0] == '1';
+}
+
+std::string IniValor(const char *texto, const char *secao, const char *chave) {
     bool naSecao = false;
     const size_t ns = std::strlen(secao), nc = std::strlen(chave);
     for (const char *l = texto; l && *l;) {
@@ -148,11 +161,11 @@ bool IniLigado(const char *texto, const char *secao, const char *chave) {
             size_t eq = linha.find_first_not_of(" \t", nc);
             if (eq != std::string::npos && linha[eq] == '=') {
                 size_t v = linha.find_first_not_of(" \t", eq + 1);
-                return v != std::string::npos && linha[v] == '1';
+                return v == std::string::npos ? std::string() : linha.substr(v);
             }
         }
     }
-    return false;
+    return {};
 }
 
 void IniciarFundo() {

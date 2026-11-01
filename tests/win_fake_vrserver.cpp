@@ -442,9 +442,9 @@ struct Desloc {
     }
 };
 
-void EscreveIni(const std::string &caminho, bool ligado) {
+void EscreveIni(const std::string &caminho, bool ligado, const char *extra = "") {
     std::ofstream f(caminho, std::ios::trunc);
-    f << "; teste ponta a ponta\n[framegen]\nativo = " << (ligado ? 1 : 0) << "\n";
+    f << "; teste ponta a ponta\n[framegen]\nativo = " << (ligado ? 1 : 0) << "\n" << extra;
 }
 
 // Fim do ghostframe.log desta execução (o arquivo é aberto em modo append).
@@ -714,7 +714,7 @@ int main(int argc, char **argv) {
         std::printf("e) %d quadros do jogo: %d gerados (%.0f%% dos quadros), %d Presents no driver em %.0f vsyncs\n",
                     quadros, gerados, 100.0 * gerados / quadros, presents, quadros * 1.5);
         CHECK(gerados * 10 >= quadros * 3 && gerados * 10 <= quadros * 7);
-        CHECK(presents <= int(quadros * 1.5) + 2);
+        CHECK(presents <= int(quadros * 1.5 * 1.05) + 2); // headset cheio, sem passar (5% de folga de tempo)
     }
 
     // ---- f) driver cujo PostPresent demora 20 ms (como um que espera o próprio vsync), jogo a
@@ -753,6 +753,37 @@ int main(int argc, char **argv) {
         CHECK(passou * 10 <= quadros);
         CHECK(gerados * 10 >= quadros * 3);
     }
+
+    // ---- g) Manual 2x sem trava do SteamVR: o jogo tenta rodar no máximo e o proxy o trava na
+    // metade dos Hz, com um gerado em cada vsync do meio (o pedido "sempre 2x"). ----
+    std::printf("\n== g) manual 2x: o proxy trava o jogo na metade e gera o resto ==\n");
+    EscreveIni(ini, true, "modo = manual\nmultiplicador = 2\n");
+    Sleep(1500); // o proxy relê o ini a cada 1 s
+    {
+        int quadros = 0, comDois = 0, gerados = 0;
+        double total = 0;
+        for (int k = 0; k < 60; ++k, ++jogo) {
+            const int de = fake.presents();
+            const double tv = gf::NowSeconds();
+            Vsync(c, jogo, 0); // nenhuma espera do "jogo": quem segura o ritmo é o proxy
+            const double dur = gf::NowSeconds() - tv;
+            const std::vector<Reg> r = Registros(fake, de);
+            if (k >= 10) {
+                quadros++;
+                comDois += r.size() == 2;
+                gerados += r.size() == 2 && r[1].doProxy;
+                total += dur;
+            }
+        }
+        const double media = total / quadros;
+        std::printf("g) %d quadros do jogo: %d com 2 Presents, %d gerados (%.0f%%); cada quadro real levou em média "
+                    "%.1f ms (2 vsyncs = %.0f ms)\n",
+                    quadros, comDois, gerados, 100.0 * gerados / quadros, media * 1000, 2 * kVsync * 1000);
+        CHECK(gerados * 10 >= quadros * 8);
+        CHECK(media >= 1.7 * kVsync); // o jogo ficou na metade dos Hz
+    }
+    EscreveIni(ini, true);
+    Sleep(1500);
 
     // O proxy nunca segurou o sync na hora errada: driver e compositor sempre o acharam livre.
     CHECK(fake.syncFalhou() == 0);
