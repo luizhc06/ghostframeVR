@@ -71,7 +71,10 @@ void LerOpcoes() {
 }
 
 void Laco() {
-    uint32_t reais0 = 0, gerados0 = 0;
+    uint32_t reais0 = 0, gerados0 = 0, repetidos0 = 0;
+    uint64_t presents0 = 0;
+    int semGerar = 0; // segundos com frame gen ligado, frames passando e nada gerado
+    bool explicou = false;
     int semFrames = 0; // segundos com o headset ativo e nenhum Present no proxy
     bool avisou = false;
     for (;;) {
@@ -84,22 +87,38 @@ void Laco() {
         if (g_estatFG.presents.load() == 0 && g_estatFG.poses.load() > 0) ++semFrames;
         if (semFrames >= 15 && !avisou) {
             avisou = true;
-            GF_LOG("!! headset ativo há 15 s e nenhum frame passou pelo proxy neste processo (vrserver): "
-                   "se o driver usa o plugin do compositor, os frames passam no vrcompositor.exe");
+            GF_LOG("!! headset ativo há 15 s e nenhum frame passou pelo proxy neste processo: "
+                   "o driver entrega o vídeo por uma interface que o proxy não embrulha (veja as linhas !! acima)");
         }
         bool fg = g_opcoes.framegen.load();
 
         // Estatísticas a cada segundo (o app e o HUD mostram ao vivo), só com algo para contar.
-        uint32_t r = g_estatFG.reais.load(), g = g_estatFG.gerados.load();
+        uint32_t r = g_estatFG.reais.load(), g = g_estatFG.gerados.load(), rep = g_estatFG.repetidos.load();
+        uint64_t p = g_estatFG.presents.load();
         int estado = g_estatFG.estado.load();
-        // Só o processo que vê os frames (vrserver ou vrcompositor) fala do frame gen.
-        if ((fg && g_estatFG.presents.load() > 0) || estado != FG_DESLIGADO) {
-            GF_LOG("FRAMEGEN estado=%s reais=%.1f/s gerados=%.1f/s falhas=%u trava=%u gpu_ms=%.2f",
+        // Só o processo que vê os frames fala do frame gen.
+        if ((fg && p > 0) || estado != FG_DESLIGADO) {
+            GF_LOG("FRAMEGEN estado=%s reais=%.1f/s gerados=%.1f/s falhas=%u trava=%u gpu_ms=%.2f presents=%.1f/s repetidos=%.1f/s",
                    NomeEstado(estado), double(r - reais0), double(g - gerados0), g_estatFG.falhas.load(),
-                   g_estatFG.trava.load(), g_estatFG.msGpu.load());
+                   g_estatFG.trava.load(), g_estatFG.msGpu.load(), double(p - presents0), double(rep - repetidos0));
+        }
+        // Ligado, frames passando e nada gerado por 10 s: diz em qual etapa parou.
+        semGerar = fg && p > presents0 && g == gerados0 ? semGerar + 1 : 0;
+        if (semGerar >= 10 && !explicou) {
+            explicou = true;
+            if (estado == FG_FALHOU)
+                GF_LOG("!! FRAMEGEN parado: o motor desistiu (veja a linha \"FRAMEGEN falhou\" acima)");
+            else if (rep == repetidos0 && g_estatFG.trava.load() == 0)
+                GF_LOG("!! FRAMEGEN sem o que gerar: em 10 s o SteamVR não repetiu nenhum quadro e não pediu trava "
+                       "(jogo na taxa do headset, ou o SteamVR não repete quadros para este driver)");
+            else
+                GF_LOG("!! FRAMEGEN com quadros para trocar e nada gerado: estado=%s falhas=%u",
+                       NomeEstado(estado), g_estatFG.falhas.load());
         }
         reais0 = r;
         gerados0 = g;
+        repetidos0 = rep;
+        presents0 = p;
     }
 }
 

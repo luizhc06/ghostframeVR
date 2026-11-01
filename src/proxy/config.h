@@ -17,6 +17,7 @@ enum EstadoFG : int { FG_DESLIGADO, FG_ESPERANDO, FG_PRONTO, FG_FALHOU };
 
 struct EstatFG {
     std::atomic<uint32_t> reais{0}, gerados{0}, falhas{0};
+    std::atomic<uint32_t> repetidos{0}; // quadros que o compositor repetiu (o jogo atrasou)
     std::atomic<uint32_t> trava{0};  // framesToThrottle visto no último PostPresent
     std::atomic<float> msGpu{-1.0f};
     // Diagnóstico: headset mandando poses sem nenhum frame passar pelo proxy.

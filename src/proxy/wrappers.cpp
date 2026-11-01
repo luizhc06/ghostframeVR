@@ -457,6 +457,7 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
                            !MesmoConjunto(cena[0].hTexture, m_ultimas[0][0].hTexture));
 
     // Quadro repetido pelo compositor (o jogo atrasou): troca pelo gerado, se estiver pronto.
+    if (nc > 0 && !novo) g_estatFG.repetidos.fetch_add(1, std::memory_order_relaxed);
     if (nc > 0 && !novo && EntregarGerado(m_camadas, nc)) {
         m_repeticoes++;
         GerarAdiante(m_repeticoes + 1);
