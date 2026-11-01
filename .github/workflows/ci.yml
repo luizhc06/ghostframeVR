@@ -43,7 +43,10 @@ jobs:
       - name: Compilar
         run: cmake --build build --config Release
       - name: Testar (frame gen no WARP)
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure -E proxy_e2e
+      # Saída inteira (-V): os números do frame gen ou o motivo do SKIP aparecem no log.
+      - name: Testar ponta a ponta (proxy + Pico falso na GPU)
+        run: ctest --test-dir build -C Release -V -R proxy_e2e
       - name: Conferir export HmdDriverFactory
         shell: pwsh
         run: |
