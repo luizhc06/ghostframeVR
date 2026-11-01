@@ -123,27 +123,36 @@ pub fn valido(id: &str, v: i32) -> bool {
     }
 }
 
+/// Leitura crua do registro: Ok(None) só quando o valor não existe; erro de leitura é erro.
+pub type LerCru<'a> = &'a dyn Fn(&str) -> Result<Option<(u32, Vec<u8>)>, String>;
+
 /// Backup: nome → {tipo, bytes} do que havia antes da 1ª mudança (null = não existia).
 /// Só entra quem ainda não está no backup: restaurar volta ao estado de antes do app.
-pub fn completar_backup(backup: &mut Map<String, Value>, nomes: &[String], ler_cru: &dyn Fn(&str) -> Option<(u32, Vec<u8>)>) {
+pub fn completar_backup(backup: &mut Map<String, Value>, nomes: &[String], ler_cru: LerCru) -> Result<(), String> {
     for n in nomes {
         if !backup.contains_key(n) {
-            backup.insert(n.clone(), ler_cru(n).map_or(Value::Null, |(t, d)| json!({ "tipo": t, "dados": d })));
+            let v = ler_cru(n)?.map_or(Value::Null, |(t, d)| json!({ "tipo": t, "dados": d }));
+            backup.insert(n.clone(), v);
         }
     }
+    Ok(())
 }
 
-/// O que restaurar: nome → Some((tipo, bytes)) para gravar, None para apagar.
-pub fn restauracao(backup: &Map<String, Value>) -> Vec<(String, Option<(u32, Vec<u8>)>)> {
+/// O que restaurar: nome → Some((tipo, bytes)) para gravar, None para apagar (só se o
+/// backup diz null). Entrada estragada é erro: nunca vira "apagar".
+pub fn restauracao(backup: &Map<String, Value>) -> Result<Vec<(String, Option<(u32, Vec<u8>)>)>, String> {
     backup
         .iter()
         .map(|(n, v)| {
+            if v.is_null() {
+                return Ok((n.clone(), None));
+            }
             let cru = v.as_object().and_then(|o| {
-                let t = o.get("tipo")?.as_u64()? as u32;
-                let d: Vec<u8> = o.get("dados")?.as_array()?.iter().map(|b| b.as_u64().map(|x| x as u8)).collect::<Option<_>>()?;
+                let t = u32::try_from(o.get("tipo")?.as_u64()?).ok()?;
+                let d: Vec<u8> = o.get("dados")?.as_array()?.iter().map(|b| b.as_u64().and_then(|x| u8::try_from(x).ok())).collect::<Option<_>>()?;
                 Some((t, d))
             });
-            (n.clone(), cru)
+            cru.map(|c| (n.clone(), Some(c))).ok_or(format!("backup do VRChat estragado em {n}: não restaurei nada"))
         })
         .collect()
 }
@@ -156,11 +165,11 @@ pub mod reg {
     use std::ffi::c_void;
 
     type Hkey = *mut c_void;
-    const HKEY_CURRENT_USER: Hkey = 0x8000_0001u32 as isize as Hkey;
+    const HKEY_CURRENT_USER: Hkey = 0x8000_0001u32 as i32 as isize as Hkey; // como no SDK: estendido com sinal
     const KEY_READ: u32 = 0x20019;
     const KEY_SET_VALUE: u32 = 0x0002;
     const ERROR_SUCCESS: i32 = 0;
-    const ERROR_NO_MORE_ITEMS: i32 = 259;
+    const ERROR_FILE_NOT_FOUND: i32 = 2;
 
     #[link(name = "advapi32")]
     extern "system" {
@@ -198,28 +207,38 @@ pub mod reg {
             let r = unsafe {
                 RegEnumValueW(k.0, i, buf.as_mut_ptr(), &mut t, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut())
             };
-            if r == ERROR_NO_MORE_ITEMS || r != ERROR_SUCCESS {
-                break;
+            if r != ERROR_SUCCESS {
+                break; // ERROR_NO_MORE_ITEMS: acabou
             }
             v.push(String::from_utf16_lossy(&buf[..t as usize]));
         }
         v
     }
 
-    pub fn ler(nome: &str) -> Option<(u32, Vec<u8>)> {
-        let k = abrir(KEY_READ)?;
+    /// Ok(None) = o valor não existe. Qualquer outro problema é Err (o backup não pode
+    /// achar que "não existia" e o Restaurar apagar um valor que existe).
+    pub fn ler_cru(nome: &str) -> Result<Option<(u32, Vec<u8>)>, String> {
+        let Some(k) = abrir(KEY_READ) else { return Ok(None) };
         let n = w(nome);
         let (mut tipo, mut tam) = (0u32, 0u32);
         let r = unsafe { RegQueryValueExW(k.0, n.as_ptr(), std::ptr::null_mut(), &mut tipo, std::ptr::null_mut(), &mut tam) };
+        if r == ERROR_FILE_NOT_FOUND {
+            return Ok(None);
+        }
         if r != ERROR_SUCCESS {
-            return None;
+            return Err(format!("registro do VRChat: erro {r} ao ler {nome}"));
         }
         let mut d = vec![0u8; tam as usize];
         let r = unsafe { RegQueryValueExW(k.0, n.as_ptr(), std::ptr::null_mut(), &mut tipo, d.as_mut_ptr(), &mut tam) };
-        (r == ERROR_SUCCESS).then(|| {
-            d.truncate(tam as usize);
-            (tipo, d)
-        })
+        if r != ERROR_SUCCESS {
+            return Err(format!("registro do VRChat: erro {r} ao ler {nome}"));
+        }
+        d.truncate(tam as usize);
+        Ok(Some((tipo, d)))
+    }
+
+    pub fn ler(nome: &str) -> Option<(u32, Vec<u8>)> {
+        ler_cru(nome).ok().flatten()
     }
 
     pub fn gravar(nome: &str, tipo: u32, dados: &[u8]) -> Result<(), String> {
@@ -231,7 +250,7 @@ pub mod reg {
     pub fn apagar(nome: &str) -> Result<(), String> {
         let k = abrir(KEY_SET_VALUE).ok_or("o VRChat ainda não rodou neste usuário do Windows")?;
         let r = unsafe { RegDeleteValueW(k.0, w(nome).as_ptr()) };
-        if r == ERROR_SUCCESS || r == 2 { Ok(()) } else { Err(format!("registro do VRChat: erro {r} ao apagar {nome}")) }
+        if r == ERROR_SUCCESS || r == ERROR_FILE_NOT_FOUND { Ok(()) } else { Err(format!("registro do VRChat: erro {r} ao apagar {nome}")) }
     }
 }
 
@@ -298,12 +317,21 @@ mod testes {
     #[test]
     fn backup_guarda_so_o_primeiro_e_restaura() {
         let mut b = Map::new();
-        let antes = |n: &str| (n == "a").then(|| (REG_DWORD, vec![5, 0, 0, 0]));
-        completar_backup(&mut b, &["a".into(), "b".into()], &antes);
+        let antes = |n: &str| Ok((n == "a").then(|| (REG_DWORD, vec![5, 0, 0, 0])));
+        completar_backup(&mut b, &["a".into(), "b".into()], &antes).unwrap();
         // Uma segunda mudança não troca o "antes".
-        completar_backup(&mut b, &["a".into()], &|_| Some((REG_DWORD, vec![4, 0, 0, 0])));
-        let r = restauracao(&b);
+        completar_backup(&mut b, &["a".into()], &|_| Ok(Some((REG_DWORD, vec![4, 0, 0, 0])))).unwrap();
+        let r = restauracao(&b).unwrap();
         assert!(r.contains(&("a".into(), Some((REG_DWORD, vec![5, 0, 0, 0])))));
         assert!(r.contains(&("b".into(), None))); // não existia: apaga
+        // Erro de leitura não vira "não existia".
+        assert!(completar_backup(&mut b, &["c".into()], &|_| Err("trava".into())).is_err());
+        assert!(!b.contains_key("c"));
+        // Entrada estragada não vira "apagar".
+        let mut ruim = Map::new();
+        ruim.insert("x".into(), json!({ "tipo": 4, "dados": [300] }));
+        assert!(restauracao(&ruim).is_err());
+        ruim.insert("x".into(), json!("lixo"));
+        assert!(restauracao(&ruim).is_err());
     }
 }

@@ -159,7 +159,10 @@ mod win {
             "amd": core::cpu_amd(),
             "threads": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
             "hags": hags(),
-            "energia": plano_energia().map(|(g, n)| json!({ "alto": g == PLANO_ALTO, "nome": n })),
+            "energia": plano_energia().map(|g| json!({
+                "alto": g == PLANO_ALTO || g == PLANO_MAXIMO,
+                "nome": match g.as_str() { PLANO_ALTO => "Alto desempenho", PLANO_MAXIMO => "Desempenho máximo", PLANO_EQUILIBRADO => "Equilibrado", _ => "outro" },
+            })),
             // Opções do jogo no registro (vazio = o VRChat ainda não rodou neste usuário).
             "jogo": { "rodou": !nomes.is_empty(), "contas": contas.len(), "ajustes": ajustes, "temBackup": backup_vrchat().exists() },
         });
@@ -369,9 +372,13 @@ mod win {
     const PLANO_ALTO: &str = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
     const PLANO_EQUILIBRADO: &str = "381b4222-f694-41f0-9685-ff5bb260df2e";
 
-    /// (GUID, nome) do plano de energia ativo. O estado roda a cada 1 s: o powercfg só a cada 10 s.
-    static PLANO: Mutex<Option<(std::time::Instant, Option<(String, String)>)>> = Mutex::new(None);
-    fn plano_energia() -> Option<(String, String)> {
+    /// Desempenho Máximo (Ultimate Performance) também conta como plano para uso pesado.
+    const PLANO_MAXIMO: &str = "e9a42b02-d5df-448d-aa00-03f14749eb61";
+
+    /// GUID do plano de energia ativo. O estado roda a cada 1 s: o powercfg só a cada 10 s.
+    /// O nome não é usado: a saída vem na página de código OEM e estraga acentos.
+    static PLANO: Mutex<Option<(std::time::Instant, Option<String>)>> = Mutex::new(None);
+    fn plano_energia() -> Option<String> {
         let mut c = PLANO.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((_, v)) = c.as_ref().filter(|(t, _)| t.elapsed() < Duration::from_secs(10)) {
             return v.clone();
@@ -380,12 +387,10 @@ mod win {
         *c = Some((std::time::Instant::now(), v.clone()));
         v
     }
-    fn ler_plano_energia() -> Option<(String, String)> {
+    fn ler_plano_energia() -> Option<String> {
         let out = Command::new("powercfg").arg("/getactivescheme").creation_flags(SEM_JANELA).output().ok()?;
         let txt = String::from_utf8_lossy(&out.stdout);
-        let guid = txt.split_whitespace().find(|p| p.len() == 36 && p.matches('-').count() == 4)?.to_lowercase();
-        let nome = txt.split('(').nth(1).and_then(|r| r.split(')').next()).unwrap_or("").trim().to_string();
-        Some((guid, nome))
+        Some(txt.split_whitespace().find(|p| p.len() == 36 && p.matches('-').count() == 4)?.to_lowercase())
     }
 
     #[tauri::command(async)]
@@ -427,8 +432,13 @@ mod win {
             mudar.push((a, v.ok_or(format!("valor inválido para {id}"))?));
         }
         let todos: Vec<String> = mudar.iter().flat_map(|(a, _)| vrchat::nomes_do_ajuste(a, &contas)).collect();
-        let mut backup = core::ler_json(&backup_vrchat()).and_then(|v| v.as_object().cloned()).unwrap_or_default();
-        vrchat::completar_backup(&mut backup, &todos, &vrchat::reg::ler);
+        // Backup ilegível nunca é trocado por um novo: os valores de antes do app estão nele.
+        let mut backup = match core::ler_json(&backup_vrchat()).and_then(|v| v.as_object().cloned()) {
+            Some(b) => b,
+            None if backup_vrchat().exists() => return Err("vrchat-backup.json ilegível: não mexi no VRChat".into()),
+            None => Map::new(),
+        };
+        vrchat::completar_backup(&mut backup, &todos, &vrchat::reg::ler_cru)?;
         fs::create_dir_all(pasta_app()).map_err(|e| e.to_string())?;
         core::gravar_atomico(&backup_vrchat(), &Value::Object(backup).to_string()).map_err(|e| format!("backup: {e}"))?;
         for (a, v) in &mudar {
@@ -447,7 +457,7 @@ mod win {
             return Err(VRCHAT_ABERTO.into());
         }
         let backup = core::ler_json(&backup_vrchat()).and_then(|v| v.as_object().cloned()).ok_or("nada para restaurar")?;
-        for (n, antes) in vrchat::restauracao(&backup) {
+        for (n, antes) in vrchat::restauracao(&backup)? {
             match antes {
                 Some((tipo, dados)) => vrchat::reg::gravar(&n, tipo, &dados)?,
                 None => vrchat::reg::apagar(&n)?,

@@ -215,22 +215,16 @@ $("#btn-vrc-copiar").onclick = async () => {
     toast("Não deu para copiar: selecione o texto e copie à mão.", true);
   }
 };
-let vrcGravando = false; // o estado de 1 s não desfaz o clique enquanto grava
-$("#vrc-particulas").onchange = async (ev) => {
-  vrcGravando = true;
-  await chamar("vrchat_particulas", { ligar: ev.target.checked });
-  vrcGravando = false;
-};
+// Gravações em andamento: o estado de 1 s não desfaz o clique enquanto elas não acabam.
+let vrcGravando = 0;
+const gravandoVrc = async (f) => { vrcGravando++; try { return await f(); } finally { vrcGravando--; } };
+$("#vrc-particulas").onchange = (ev) => gravandoVrc(() => chamar("vrchat_particulas", { ligar: ev.target.checked }));
 $("#btn-graficos").onclick = () => chamar("abrir_graficos_windows");
 $$("#vrc-plano button").forEach((b) => (b.onclick = () => chamar("plano_energia_usar", { alto: b.dataset.alto === "1" }, b)));
 $("#vr-home").onchange = (ev) => vrSet("home", ev.target.checked);
 
 // Opções do jogo no registro (o backend recusa com o VRChat aberto e guarda o backup).
-const vrcAjustar = async (valores) => {
-  vrcGravando = true;
-  await chamar("vrchat_ajustar", { valores });
-  vrcGravando = false;
-};
+const vrcAjustar = (valores) => gravandoVrc(() => chamar("vrchat_ajustar", { valores }));
 $$("#vrc-rank button").forEach((b) => (b.onclick = () => vrcAjustar({ rank: +b.dataset.valor })));
 $$("[data-vrc]").forEach((el) => (el.onchange = () =>
   vrcAjustar({ [el.dataset.vrc]: +(el.checked ? el.dataset.sim : el.dataset.nao) })));
@@ -243,23 +237,25 @@ $("#vrc-max").oninput = (ev) => {
 };
 $("#btn-vrc-restaurar").onclick = (ev) => chamar("vrchat_restaurar", {}, ev.target);
 // Modo leve: o que o VRChat recomenda para desempenho + o perfil Desempenho do ghostframe.
-$("#btn-vrc-leve").onclick = async (ev) => {
-  const b = ev.target;
+// O jogo primeiro (se o VRChat estiver aberto, nada muda); depois partículas e perfil,
+// cada um por si: um erro num não esconde o que deu certo no outro.
+let vrPode = false; // SteamVR ao vivo ou arquivo disponível (o perfil mexe nele)
+$("#btn-vrc-leve").onclick = (ev) => gravandoVrc(async () => {
+  const b = ev.target, erros = [];
   b.disabled = true;
-  vrcGravando = true;
   try {
     await invoke("vrchat_ajustar", { valores: { rank: 3, maxLigado: 1, maxAvatares: 15, espelho: 2, sombras: 0, lod: 0, aa: 1 } });
-    await invoke("vrchat_particulas", { ligar: true });
-    if (framegenDisponivel) await aplicarPerfil("desempenho");
-    toast("Modo VRChat leve aplicado. Vale quando o VRChat abrir.");
+    await invoke("vrchat_particulas", { ligar: true }).catch((e) => erros.push(String(e)));
+    if (framegenDisponivel && vrPode) await aplicarPerfil("desempenho").catch((e) => erros.push(String(e)));
+    else erros.push("perfil Desempenho não aplicado (frame gen ou SteamVR indisponível agora)");
+    toast(erros.length ? `Modo VRChat leve aplicado, exceto: ${erros.join("; ")}` : "Modo VRChat leve aplicado. Vale quando o VRChat abrir.", erros.length > 0);
   } catch (e) {
     toast(String(e), true);
   } finally {
     b.disabled = false;
-    vrcGravando = false;
     atualizar();
   }
-};
+});
 
 // ---------- prévia do HUD: no máximo um pedido em voo, mais um na fila ----------
 let previaOcupada = false, previaDeNovo = false;
@@ -550,6 +546,7 @@ function render(e) {
   $$("#vrc-plano button").forEach((b) => b.classList.toggle("ativo", !!en && en.alto === (b.dataset.alto === "1")));
   $("#vr-home").checked = !!s && (s.home ?? true); // ausente = padrão do SteamVR (ligado)
   $("#vr-home").disabled = !pode;
+  vrPode = pode;
 
   // Opções do jogo (registro): só com o VRChat fechado.
   const jogo = vrcInfo?.jogo, aj = jogo?.ajustes || {};
