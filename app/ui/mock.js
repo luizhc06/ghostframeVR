@@ -101,7 +101,9 @@ if (!window.__TAURI__) {
         return {
           framegenDisponivel: on, alvoAuto: !cfg["app.alvo"], versao: "0.2.0-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
           processos: { steamvr: aberto },
-          vrchat: { aberto: false, limitador: vrcLimitador, erroConfig: null, amd: /amd/.test(location.search), threads: 24, hags: true },
+          vrchat: { aberto: false, ...(/vrcerro/.test(location.search)
+            ? { limitador: null, erroConfig: "o config.json do VRChat é um JSON inválido (linha 3): não mexi nele" }
+            : { limitador: vrcLimitador, erroConfig: null }), amd: /amd/.test(location.search), threads: 24, hags: true },
           drivers: modo === "sem-alvo" ? [] : (cfg["app.alvo"] && !/PICO Connect\\resources/.test(cfg["app.alvo"]) ? [{ nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz: cfg["app.alvo"], dll: "" }] : []).concat([
             { nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz, dll: raiz + "\\bin\\win64\\driver_pico.dll" },
             { nome: "alvr_server", rotulo: "ALVR", suporte: "streaming", embutido: false, raiz: "C:\\ALVR", dll: "C:\\ALVR\\bin\\win64\\driver_alvr_server.dll" },

@@ -336,7 +336,7 @@ mod win {
     }
 
     /// Liga/desliga o limitador de partículas no config.json do VRChat (backup na 1ª vez).
-    #[tauri::command]
+    #[tauri::command(async)]
     fn vrchat_particulas(ligar: bool) -> Result<String, String> {
         let p = vrchat_config().ok_or("não achei a pasta do usuário (LOCALAPPDATA)")?;
         let texto = ler_vrchat_config()?;

@@ -197,7 +197,7 @@ function argsVrchat() {
   const a = [];
   if (config["vrchat.prioridade"] !== "0") a.push(`--process-priority=${config["vrchat.prioridade"]}`);
   if (config["vrchat.thread"] !== "0") a.push(`--main-thread-priority=${config["vrchat.thread"]}`);
-  // Primeira metade das threads (o CCD 0 num Ryzen de dois CCDs), como a doc sugere.
+  // Primeira metade das threads: o primeiro CCX num Ryzen de dois (a doc pede o primeiro CCX).
   const metade = Math.floor((vrcInfo?.threads || 0) / 2);
   if (vrcInfo?.amd && config["vrchat.afinidade"] === "1" && metade > 0)
     a.push(`--affinity=${((1n << BigInt(metade)) - 1n).toString(16).toUpperCase()}`);
@@ -211,7 +211,12 @@ $("#btn-vrc-copiar").onclick = async () => {
     toast("Não deu para copiar: selecione o texto e copie à mão.", true);
   }
 };
-$("#vrc-particulas").onchange = (ev) => chamar("vrchat_particulas", { ligar: ev.target.checked });
+let vrcGravando = false; // o estado de 1 s não desfaz o clique enquanto grava
+$("#vrc-particulas").onchange = async (ev) => {
+  vrcGravando = true;
+  await chamar("vrchat_particulas", { ligar: ev.target.checked });
+  vrcGravando = false;
+};
 $("#btn-graficos").onclick = () => chamar("abrir_graficos_windows");
 
 // ---------- prévia do HUD: no máximo um pedido em voo, mais um na fila ----------
@@ -491,7 +496,7 @@ function render(e) {
   if ($("#vrc-args").value !== args) $("#vrc-args").value = args;
   $("#btn-vrc-copiar").disabled = !args;
   const lim = vrcInfo?.limitador;
-  $("#vrc-particulas").checked = !!lim;
+  if (!vrcGravando) $("#vrc-particulas").checked = !!lim;
   $("#vrc-particulas").disabled = !vrcInfo || lim == null;
   classe($("#vrc-part-tag"), "tag " + (lim ? "ok" : ""));
   texto($("#vrc-part-tag"), lim ? "ligado" : "");

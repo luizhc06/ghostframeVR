@@ -56,6 +56,7 @@ const VRC_PS_PADRAO: &[(&str, i64)] = &[
 ];
 
 fn vrc_raiz(texto: &str) -> Result<Map<String, Value>, String> {
+    let texto = texto.trim_start_matches('\u{feff}'); // "UTF-8 com BOM" do Bloco de Notas
     if texto.trim().is_empty() {
         return Ok(Map::new()); // o VRChat não cria o arquivo sozinho
     }
@@ -751,6 +752,9 @@ pub fn gravar_atomico(arquivo: &Path, conteudo: &str) -> io::Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(30));
         r = fs::rename(&tmp, arquivo);
     }
+    if r.is_err() {
+        let _ = fs::remove_file(&tmp); // não deixa .tmp órfão na pasta (a do VRChat inclusive)
+    }
     r
 }
 
@@ -784,6 +788,8 @@ mod testes {
         assert!(vrc_com_limitador("{ quebrado", true).is_err());
         assert!(vrc_com_limitador("[1, 2]", true).is_err());
         assert!(vrc_com_limitador(r#"{"betas": "x"}"#, true).is_err());
+        // Com BOM (o VRChat aceita): lê normal.
+        assert_eq!(vrc_limitador("\u{feff}{\"betas\": [\"particle_system_limiter\"]}"), Ok(true));
     }
 
     fn tmp(nome: &str) -> PathBuf {
