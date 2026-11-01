@@ -4,6 +4,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.12-alpha] - 2026-11-01
+
 ### Adicionado
 - **Autoteste na sua GPU** (aba Desempenho, "Testar agora"): roda no seu PC o mesmo teste ponta a ponta da CI (proxy de verdade, Pico e SteamVR falsos, textura D3D11 na placa padrão) numa pasta temporária, sem abrir o SteamVR nem mexer nas suas configurações. Mostra a GPU usada, o custo em ms por frame gerado e quantos quadros foram trocados por gerados, com e sem trava.
 
