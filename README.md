@@ -29,7 +29,7 @@
 ---
 
 > [!WARNING]
-> **Projeto em fase alpha / experimental.** Desde a `v0.2` o ghostframeVR gera frames, mas ainda não foi testado num headset real. O frame gen vem **desligado**: você liga no app e, se algo falhar, o proxy volta sozinho a só repassar os frames e o log diz o motivo. Use por sua conta e risco.
+> **Projeto em fase alpha / experimental.** Desde a `v0.2` o ghostframeVR gera frames (testado de ponta a ponta com textura D3D11 na CI), mas ainda não foi confirmado num headset real. O frame gen vem **desligado**: você liga no app e, se algo falhar, o proxy volta sozinho a só repassar os frames e o log diz o motivo. Use por sua conta e risco.
 
 ## 👻 Por que
 
@@ -53,7 +53,8 @@ flowchart LR
 
 1. O SteamVR carrega cada driver como uma DLL. O ghostframeVR entra **no lugar da DLL do driver do seu headset** (Pico Connect, ALVR...) e carrega a original por trás. Tudo é repassado, então o driver continua funcionando normalmente.
 2. Com o frame gen ligado, cada frame real do jogo vai para um motor na GPU (D3D11, compute shaders) que mede o movimento entre os dois últimos frames, já descontando o giro da cabeça.
-3. Quando o jogo não tem frame novo, o proxy entrega um **frame gerado por extrapolação**: o último frame real deformado para a frente pelo movimento medido. Com a trava de fps do SteamVR (½ ou ⅓), entra um frame gerado em cada vsync entre os reais.
+3. Quando o jogo não tem frame novo, o proxy entrega um **frame gerado por extrapolação**: o último frame real deformado para a frente pelo movimento medido. Com a trava de fps do SteamVR (½ ou ⅓), entra um frame gerado em cada vsync entre os reais. É o mesmo conceito do Lossless Scaling (o jogo numa fração, o resto gerado), no único ponto em que o frame chega ao headset: o driver.
+   - O SteamVR só repassa a trava a headsets que se declaram compatíveis (`Prop_Hmd_SupportsAppThrottling_Bool`). Com o frame gen ligado, o proxy declara e segura o vsync ele mesmo.
 4. O giro da cabeça continua com o timewarp do próprio headset, como sempre. Detalhes em [docs/FRAMEGEN.md](docs/FRAMEGEN.md).
 
 Tudo roda dentro do `vrserver.exe` do SteamVR e no app à parte. **O processo do jogo nunca é tocado.**
@@ -67,7 +68,8 @@ O `ghostframeVR.exe` instala o proxy, liga o frame gen e mostra o que está acon
 | Aba | O que faz |
 |---|---|
 | **Painel** | SteamVR, headset (modelo e Hz), driver e proxy; fps no headset, fps do jogo, **frames gerados**, frame time e gráficos |
-| **Desempenho** | Chave do frame gen, em **Auto** (escolhe 2× ou 3× pelo que o jogo aguenta) ou **Manual**; ajustes do SteamVR **ao vivo**: resolução, motion smoothing e trava de fps por jogo |
+| **Desempenho** | Perfis de um clique (Qualidade, Equilibrado, Desempenho, Máximo fps); chave do frame gen, em **Auto** (escolhe 2× ou 3× pelo que o jogo aguenta) ou **Manual**, com o motivo quando não está gerando; ajustes do SteamVR **ao vivo**: resolução, motion smoothing e trava de fps por jogo |
+| **VRChat** | **Modo VRChat leve** num clique (com Restaurar); bloqueio de avatar por rank com impostor, limite de avatares visíveis e por distância, partículas, espelho, sombras, detalhe e anti-aliasing; opções de inicialização para copiar; plano de energia, agendamento de GPU e SteamVR Home. Nada toca no processo do jogo |
 | **HUD** | Relógio no pulso dentro do headset, com âncora, tamanho, opacidade, posição, itens e prévia real |
 | **Instalação** | Detecta o driver do headset, instala, atualiza ou desinstala o proxy (com backup) |
 | **Log** | O `ghostframe.log` ao vivo e o botão **Gerar relatório** |
@@ -92,7 +94,8 @@ O `ghostframeVR.exe` instala o proxy, liga o frame gen e mostra o que está acon
    - Se não encontrou, cole a pasta do driver no campo e aperte Enter. Pode ser a pasta com o `driver.vrdrivermanifest`, a pasta `bin\win64` ou o próprio `driver_*.dll`, com ou sem aspas.
    - A linha **Em uso** mostra o driver e a DLL escolhidos.
 3. Clique em **INSTALAR**. Se o driver estiver em `Program Files`, o Windows pede permissão de administrador. Antes de trocar qualquer arquivo, o app faz backup em `%LOCALAPPDATA%\ghostframeVR\backup`.
-4. Na aba **Desempenho**, ligue a chave **Frame gen** (deixe em **Auto**).
+4. Na aba **Desempenho**, escolha o perfil **Desempenho** (ou ligue a chave **Frame gen** em **Auto**).
+   - Jogando VRChat: na aba **VRChat**, com o jogo fechado, clique em **Aplicar** no Modo VRChat leve.
 5. Na aba **HUD**, ligue o HUD e, se quiser, **Iniciar com o SteamVR**.
 6. Abra o programa do headset e o SteamVR e jogue.
 7. Para mandar um teste, use **Gerar relatório** (aba Log) e anexe a pasta numa [issue](https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml).
@@ -125,11 +128,12 @@ As opções ficam em `%LOCALAPPDATA%\ghostframeVR\ghostframe.ini`. Não apague a
 | ✅ | **1. Diagnóstico** | Proxy transparente que registra caminho de vídeo, taxa de frames, texturas, depth, poses e Motion Smoothing |
 | ✅ | **App de controle** | Instalação com backup, painel, HUD de relógio, ajustes do SteamVR ao vivo, modo Auto |
 | 🧪 | **2. Frame gen ao vivo (experimental)** | Extrapolação na GPU entregue pelo driver; desligado por padrão ([como funciona](docs/FRAMEGEN.md)) |
-| 🔄 | **3. Primeiro teste real** | Pico 4 + Pico Connect + VRChat: confirmar pelo log que o driver aceita os frames gerados e medir o custo |
+| 🔄 | **3. Primeiro teste real** | Pico 4 + Pico Connect + VRChat. O 1º log achou a causa de não gerar nada (o Pico usa o DirectMode 008, corrigido na `v0.2.6`); a `v0.2.8` diz no log e no app em que etapa o frame gen parou. Falta o log de uma sessão real |
+| ✅ | **Otimização do VRChat** | Aba VRChat com o que o próprio VRChat recomenda para desempenho (`v0.2.9` e `v0.2.10`) |
 | ⏳ | **4. Ajuste fino** | Com os logs de teste: qualidade (vetores subpixel, bordas), ritmo dos frames e outros drivers |
 | ⏳ | **5. Qualidade extra** | Fluxo óptico por hardware (NVIDIA Optical Flow), uso do depth quando o jogo enviar, gravação de cenas para análise |
 
-Abrir o binário do driver da Pico ficou como [plano B](docs/RE_BRIEF.md): o proxy trabalha na interface pública do SteamVR. Acompanhe em [Issues](https://github.com/luizhc06/ghostframevr/issues) e [Milestones](https://github.com/luizhc06/ghostframevr/milestones).
+**Plano B, se o Pico Connect descartar os frames do proxy:** o mesmo proxy por cima do **ALVR**. Ele é open source, codifica todo frame que recebe e usa a mesma interface que o proxy já embrulha; o app já instala nele. Abrir o binário do driver da Pico ([plano C](docs/RE_BRIEF.md)) só se nem isso der. Acompanhe em [Issues](https://github.com/luizhc06/ghostframevr/issues) e [Milestones](https://github.com/luizhc06/ghostframevr/milestones).
 
 ### Compatibilidade
 
@@ -137,8 +141,9 @@ Funciona com headsets cujo lado do PC é um **driver do SteamVR** e com jogos qu
 
 | Driver | Status |
 |---|---|
-| Pico Connect (Pico 4) | 🎯 alvo principal, em teste |
-| ALVR, Virtual Desktop, Steam Link, Meta Link / Air Link via SteamVR | 🤷 o proxy é genérico, mas o frame gen precisa ser validado em cada driver. [Mande um relatório](https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml) |
+| Pico Connect (Pico 4) | 🎯 alvo principal, em teste (DirectMode 008 suportado desde a `v0.2.6`) |
+| ALVR | 🧪 plano B: mesmo proxy, DirectMode 009; aceita todo frame no código. Falta teste real |
+| Virtual Desktop, Steam Link, Meta Link / Air Link via SteamVR | 🤷 o proxy é genérico, mas o frame gen precisa ser validado em cada driver. [Mande um relatório](https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml) |
 | Index / Vive, Windows MR | ➖ sem ganho: já têm reprojeção própria no SteamVR |
 | Jogos no runtime Oculus/Meta ou VDXR (fora do SteamVR) | ❌ não passam pelo SteamVR |
 
@@ -220,6 +225,24 @@ Sim, de forma experimental desde a `v0.2`. Ligue a chave em **Desempenho → Fra
 <summary><b>Por que não usar DLSS Frame Generation, FSR ou o Lossless Scaling?</b></summary>
 
 O DLSS FG exige RTX 40 ou mais nova e precisa estar dentro do jogo. O FSR 4 só roda em placas AMD RDNA 4. O FSR 3 FG e o Lossless Scaling interpolam, o que soma atraso. Nenhum deles funciona de fora do jogo no caminho de vídeo do VR.
+</details>
+
+<details>
+<summary><b>Não dava para gerar os frames dentro do jogo, como o Lossless Scaling?</b></summary>
+
+Não no VR. O Lossless captura uma janela do desktop e desenha outra por cima, e o headset nunca vê nenhuma das duas: o vídeo vai do jogo para o compositor do SteamVR e dele para o driver do headset, que é onde o ghostframeVR fica. Gerar dentro do jogo exigiria mexer no processo dele, e o VRChat bloqueia qualquer cliente modificado (Easy Anti-Cheat; até trocar o `openvr_api.dll` conta como mod).
+</details>
+
+<details>
+<summary><b>Dá para otimizar os avatares dos outros (malha, skinned meshes, PhysBones)?</b></summary>
+
+Pelo próprio VRChat, sim. Com um rank mínimo de desempenho, avatar acima dele com malha, skinned meshes, materiais ou ossos demais vira **impostor** (uma versão leve gerada pelo VRChat), e PhysBones, luzes e partículas demais são removidos. No PC nada disso vem ligado. O Modo VRChat leve liga (rank Medium, o que o VRChat sugere, com impostor). Mexer na malha de um avatar específico só modificando o cliente, o que o VRChat bane.
+</details>
+
+<details>
+<summary><b>O Pico Connect não tem interpolação própria?</b></summary>
+
+Tem uma opção "Frame Interpolation" no app do Pico Connect (configurações de jogo), que roda no headset e chega a 2×. Ela serve de comparação. Desligue-a quando testar o ghostframeVR, para os dois não se misturarem.
 </details>
 
 <details>
