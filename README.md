@@ -67,7 +67,7 @@ O `ghostframeVR.exe` instala o proxy, liga o frame gen e mostra o que está acon
 | Aba | O que faz |
 |---|---|
 | **Painel** | SteamVR, headset (modelo e Hz), driver e proxy; fps no headset, fps do jogo, **frames gerados**, frame time e gráficos |
-| **Desempenho** | Frame gen em **Auto** (escolhe 2× ou 3× pelo que o jogo aguenta) ou **Manual**; ajustes do SteamVR **ao vivo**: resolução, motion smoothing e trava de fps por jogo |
+| **Desempenho** | Chave do frame gen, em **Auto** (escolhe 2× ou 3× pelo que o jogo aguenta) ou **Manual**; ajustes do SteamVR **ao vivo**: resolução, motion smoothing e trava de fps por jogo |
 | **HUD** | Relógio no pulso dentro do headset, com âncora, tamanho, opacidade, posição, itens e prévia real |
 | **Instalação** | Detecta o driver do headset, instala, atualiza ou desinstala o proxy (com backup) |
 | **Log** | O `ghostframe.log` ao vivo e o botão **Gerar relatório** |
@@ -92,7 +92,7 @@ O `ghostframeVR.exe` instala o proxy, liga o frame gen e mostra o que está acon
    - Se não encontrou, cole a pasta do driver no campo e aperte Enter. Pode ser a pasta com o `driver.vrdrivermanifest`, a pasta `bin\win64` ou o próprio `driver_*.dll`, com ou sem aspas.
    - A linha **Em uso** mostra o driver e a DLL escolhidos.
 3. Clique em **INSTALAR**. Se o driver estiver em `Program Files`, o Windows pede permissão de administrador. Antes de trocar qualquer arquivo, o app faz backup em `%LOCALAPPDATA%\ghostframeVR\backup`.
-4. Na aba **Desempenho**, coloque o **Frame gen** em **Auto**.
+4. Na aba **Desempenho**, ligue a chave **Frame gen** (deixe em **Auto**).
 5. Na aba **HUD**, ligue o HUD e, se quiser, **Iniciar com o SteamVR**.
 6. Abra o programa do headset e o SteamVR e jogue.
 7. Para mandar um teste, use **Gerar relatório** (aba Log) e anexe a pasta numa [issue](https://github.com/luizhc06/ghostframevr/issues/new?template=test_report.yml).
@@ -213,7 +213,7 @@ O ghostframeVR não injeta nada no jogo, não lê nem altera a memória dele e r
 <details>
 <summary><b>Já gera frames?</b></summary>
 
-Sim, de forma experimental desde a `v0.2`. Ligue em **Desempenho → Frame gen**. Se algo der errado, o proxy volta a só repassar os frames e o log mostra o motivo.
+Sim, de forma experimental desde a `v0.2`. Ligue a chave em **Desempenho → Frame gen**. Se algo der errado, o proxy volta a só repassar os frames e o log mostra o motivo.
 </details>
 
 <details>

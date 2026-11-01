@@ -21,6 +21,18 @@ jobs:
       - name: Testar
         run: ctest --test-dir build --output-on-failure
 
+  linux-asan:
+    name: Testes (Linux, ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all"
+      - name: Compilar
+        run: cmake --build build -j
+      - name: Testar
+        run: ctest --test-dir build --output-on-failure
+
   app-core:
     name: App (lógica, Linux)
     runs-on: ubuntu-latest
@@ -43,7 +55,10 @@ jobs:
       - name: Compilar
         run: cmake --build build --config Release
       - name: Testar (frame gen no WARP)
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure -E proxy_e2e
+      # Saída inteira (-V): os números do frame gen ou o motivo do SKIP aparecem no log.
+      - name: Testar ponta a ponta (proxy + Pico falso na GPU)
+        run: ctest --test-dir build -C Release -V -R proxy_e2e
       - name: Conferir export HmdDriverFactory
         shell: pwsh
         run: |

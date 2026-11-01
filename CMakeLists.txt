@@ -18,7 +18,7 @@ add_library(ghostframe_proxy SHARED
     src/proxy/framegen.cpp
     src/proxy/framegen_ref.cpp
 )
-target_include_directories(ghostframe_proxy PRIVATE third_party/openvr)
+target_include_directories(ghostframe_proxy SYSTEM PRIVATE third_party/openvr)
 set_target_properties(ghostframe_proxy PROPERTIES OUTPUT_NAME ${GF_DRIVER_NAME} PREFIX "")
 if(WIN32)
     # d3dcompiler_47.dll é carregada na hora pelo framegen.cpp (sem ela o proxy ainda carrega).
@@ -66,17 +66,38 @@ if(WIN32)
         target_compile_options(framegen_d3d_test PRIVATE /W4 /permissive-)
     endif()
     add_test(NAME framegen_d3d COMMAND framegen_d3d_test)
+
+    # ---- Ponta a ponta: proxy de verdade + Pico falso com D3D11, compositor falso ----
+    add_library(win_fake_pico SHARED tests/win_fake_pico.cpp)
+    target_include_directories(win_fake_pico SYSTEM PRIVATE third_party/openvr)
+    target_link_libraries(win_fake_pico PRIVATE d3d11 dxgi)
+    # O proxy carrega "<nome>_real.dll" da pasta dele (a mesma saída do build).
+    set_target_properties(win_fake_pico PROPERTIES OUTPUT_NAME ${GF_DRIVER_NAME}_real PREFIX "")
+
+    add_executable(win_fake_vrserver tests/win_fake_vrserver.cpp src/proxy/framegen_ref.cpp src/proxy/platform.cpp)
+    target_include_directories(win_fake_vrserver PRIVATE src/proxy tests)
+    target_include_directories(win_fake_vrserver SYSTEM PRIVATE third_party/openvr)
+    target_link_libraries(win_fake_vrserver PRIVATE d3d11 dxgi)
+    add_dependencies(win_fake_vrserver ghostframe_proxy win_fake_pico)
+    if(MSVC)
+        target_compile_options(win_fake_pico PRIVATE /W4 /permissive-)
+        target_compile_options(win_fake_vrserver PRIVATE /W4 /permissive-)
+    endif()
+    add_test(NAME proxy_e2e_d3d
+        COMMAND win_fake_vrserver $<TARGET_FILE:ghostframe_proxy> $<TARGET_FILE:win_fake_pico>)
+    # Sem GPU que compartilhe texturas entre devices o teste diz SKIP e sai com 77.
+    set_tests_properties(proxy_e2e_d3d PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
 endif()
 
 # ---- Testes (só fora do Windows: simulam SteamVR + driver Pico) ----
 if(NOT WIN32)
     add_library(fake_pico_real SHARED tests/fake_pico_driver.cpp)
-    target_include_directories(fake_pico_real PRIVATE third_party/openvr)
+    target_include_directories(fake_pico_real SYSTEM PRIVATE third_party/openvr)
     # O proxy procura "<nome>_real.so" ao lado dele mesmo.
     set_target_properties(fake_pico_real PROPERTIES OUTPUT_NAME ${GF_DRIVER_NAME}_real PREFIX "")
 
     add_executable(fake_vrserver tests/fake_vrserver.cpp)
-    target_include_directories(fake_vrserver PRIVATE third_party/openvr)
+    target_include_directories(fake_vrserver SYSTEM PRIVATE third_party/openvr)
     target_link_libraries(fake_vrserver PRIVATE ${CMAKE_DL_LIBS})
 
     add_test(NAME proxy_passthrough

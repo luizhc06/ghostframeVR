@@ -10,6 +10,7 @@
 #include "framegen.h"
 
 #include <openvr_driver.h>
+#include <openvr_driver_legado.h>
 
 #include <atomic>
 #include <cstring>
@@ -83,6 +84,7 @@ private:
     static constexpr uint32_t kMaxCamadas = 16, kMaxConjuntos = 64;
 
     bool AcharConjunto(vr::SharedTextureHandle_t h, Conjunto *out);
+    bool MesmoConjunto(vr::SharedTextureHandle_t a, vr::SharedTextureHandle_t b);
     bool GarantirSaida(const Camada &cena);
     void LiberarSaida();
     bool Motor();
@@ -139,6 +141,49 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// DirectMode 008 (Pico Connect e outros drivers do SDK 1.23 a 2.2). A vtable é a mesma
+// da 009; só o SubmitLayerPerEye_t é menor (não tinha a predição da pose no fim). Em vez
+// de duplicar o frame gen, a 008 passa por dois tradutores:
+//   SteamVR -> Frente008 (008->009) -> DirectModeWrapper -> Driver008 (009->008) -> driver
+class Driver008 final : public vr::IVRDriverDirectModeComponent {
+public:
+    explicit Driver008(vr::legado::IVRDriverDirectModeComponent *real) : m_real(real) {}
+
+    void CreateSwapTextureSet(uint32_t unPid, const SwapTextureSetDesc_t *pDesc, SwapTextureSet_t *pOut) override;
+    void DestroySwapTextureSet(vr::SharedTextureHandle_t h) override { m_real->DestroySwapTextureSet(h); }
+    void DestroyAllSwapTextureSets(uint32_t unPid) override { m_real->DestroyAllSwapTextureSets(unPid); }
+    void GetNextSwapTextureSetIndex(vr::SharedTextureHandle_t handles[2], uint32_t (*pIndices)[2]) override {
+        m_real->GetNextSwapTextureSetIndex(handles, pIndices);
+    }
+    void SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) override;
+    void Present(vr::SharedTextureHandle_t syncTexture) override { m_real->Present(syncTexture); }
+    void PostPresent(const Throttling_t *pThrottling) override;
+    void GetFrameTiming(vr::DriverDirectMode_FrameTiming *pFrameTiming) override { m_real->GetFrameTiming(pFrameTiming); }
+
+private:
+    vr::legado::IVRDriverDirectModeComponent *m_real;
+};
+
+class Frente008 final : public vr::legado::IVRDriverDirectModeComponent {
+public:
+    explicit Frente008(vr::IVRDriverDirectModeComponent *dm) : m_dm(dm) {}
+
+    void CreateSwapTextureSet(uint32_t unPid, const SwapTextureSetDesc_t *pDesc, SwapTextureSet_t *pOut) override;
+    void DestroySwapTextureSet(vr::SharedTextureHandle_t h) override { m_dm->DestroySwapTextureSet(h); }
+    void DestroyAllSwapTextureSets(uint32_t unPid) override { m_dm->DestroyAllSwapTextureSets(unPid); }
+    void GetNextSwapTextureSetIndex(vr::SharedTextureHandle_t handles[2], uint32_t (*pIndices)[2]) override {
+        m_dm->GetNextSwapTextureSetIndex(handles, pIndices);
+    }
+    void SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) override;
+    void Present(vr::SharedTextureHandle_t syncTexture) override { m_dm->Present(syncTexture); }
+    void PostPresent(const Throttling_t *pThrottling) override;
+    void GetFrameTiming(vr::DriverDirectMode_FrameTiming *pFrameTiming) override { m_dm->GetFrameTiming(pFrameTiming); }
+
+private:
+    vr::IVRDriverDirectModeComponent *m_dm;
+};
+
+// ---------------------------------------------------------------------------
 // Embrulha os componentes de vídeo (VirtualDisplay / DirectMode) que um driver devolve,
 // venha o pedido do HMD, de um DisplayRedirect ou do plugin do compositor.
 class Componentes {
@@ -149,6 +194,9 @@ private:
     std::mutex m_mutex;
     std::unique_ptr<VirtualDisplayWrapper> m_virtualDisplay;
     std::unique_ptr<DirectModeWrapper> m_directMode;
+    std::unique_ptr<Driver008> m_driver008;
+    std::unique_ptr<DirectModeWrapper> m_directMode008;
+    std::unique_ptr<Frente008> m_frente008;
 };
 
 // ---------------------------------------------------------------------------

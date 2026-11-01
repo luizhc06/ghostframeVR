@@ -5,6 +5,7 @@
 #include "platform.h"
 
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 
 namespace gf {
@@ -113,6 +114,17 @@ void Media(double &media, double amostra) {
 }
 } // namespace
 
+// Um handle novo pode reaproveitar o valor de um destruído: o motor tem de esquecer a
+// textura aberta por ele. Chamado depois do Destroy real, com m_mutexConjuntos.
+static void Enfileirar(vr::SharedTextureHandle_t *fila, uint32_t &n, uint32_t max, bool &tudo,
+                       const vr::SharedTextureHandle_t (&h)[3]) {
+    for (vr::SharedTextureHandle_t x : h) {
+        if (!x) continue;
+        if (n < max) fila[n++] = x;
+        else tudo = true;
+    }
+}
+
 void DirectModeWrapper::CreateSwapTextureSet(uint32_t pid, const SwapTextureSetDesc_t *d, SwapTextureSet_t *out) {
     m_real->CreateSwapTextureSet(pid, d, out);
     if (d && out) {
@@ -124,21 +136,14 @@ void DirectModeWrapper::CreateSwapTextureSet(uint32_t pid, const SwapTextureSetD
         std::lock_guard<std::mutex> lock(m_mutexConjuntos);
         uint32_t i = 0;
         while (i < m_nConjuntos && m_conjuntos[i].h[0]) ++i; // reaproveita vaga de um destruído
-        if (i == kMaxConjuntos) i = 0;                         // cheio: o mais antigo sai
-        else if (i == m_nConjuntos) ++m_nConjuntos;
+        if (i == kMaxConjuntos) { // cheio: o mais antigo sai (e o motor solta o que abriu dele)
+            i = 0;
+            Enfileirar(m_esquecer, m_nEsquecer, kMaxEsquecer, m_esquecerTudo, m_conjuntos[0].h);
+        } else if (i == m_nConjuntos) {
+            ++m_nConjuntos;
+        }
         m_conjuntos[i] = {{out->rSharedTextureHandles[0], out->rSharedTextureHandles[1], out->rSharedTextureHandles[2]},
                           *d, out->unTextureFlags, pid};
-    }
-}
-
-// Um handle novo pode reaproveitar o valor de um destruído: o motor tem de esquecer a
-// textura aberta por ele. Chamado depois do Destroy real, com m_mutexConjuntos.
-static void Enfileirar(vr::SharedTextureHandle_t *fila, uint32_t &n, uint32_t max, bool &tudo,
-                       const vr::SharedTextureHandle_t (&h)[3]) {
-    for (vr::SharedTextureHandle_t x : h) {
-        if (!x) continue;
-        if (n < max) fila[n++] = x;
-        else tudo = true;
     }
 }
 
@@ -175,7 +180,7 @@ void DirectModeWrapper::DestroyAllSwapTextureSets(uint32_t pid) {
 }
 
 // Na thread do Present: solta o que foi destruído. Só zera o histórico se a textura
-// da cena (ou a de saída) estava entre elas.
+// da cena estava entre elas; se for de outra camada, só não reenvia mais as camadas guardadas.
 void DirectModeWrapper::Esquecidos() {
     vr::SharedTextureHandle_t fila[kMaxEsquecer];
     uint32_t n;
@@ -189,20 +194,30 @@ void DirectModeWrapper::Esquecidos() {
         m_esquecerTudo = false;
     }
     if (!n && !tudo) return;
-    bool historico = tudo;
+    bool historico = tudo, camada = false;
     for (uint32_t i = 0; i < n; ++i) {
         if (MotorOk()) m_fg.Esquecer(fila[i]);
-        for (uint32_t e = 0; e < 2 && m_nUltimas; ++e) historico |= fila[i] == m_ultimas[0][e].hTexture;
+        for (uint32_t c = 0; c < m_nUltimas; ++c)
+            for (uint32_t e = 0; e < 2; ++e)
+                if (fila[i] == m_ultimas[c][e].hTexture) (c == 0 ? historico : camada) = true;
     }
     if (historico) {
         if (MotorOk()) m_fg.Reiniciar();
-        m_nUltimas = 0;
         m_pendente = false;
+        m_nUltimas = 0;
+    } else if (camada) {
+        m_nUltimas = 1; // fica só a cena: os overlays voltam no próximo quadro real
     }
 }
 
 void DirectModeWrapper::GetNextSwapTextureSetIndex(vr::SharedTextureHandle_t handles[2], uint32_t (*pIndices)[2]) {
     m_real->GetNextSwapTextureSetIndex(handles, pIndices);
+}
+
+// O compositor pode copiar o mesmo quadro para outra das 3 texturas do swap set.
+bool DirectModeWrapper::MesmoConjunto(vr::SharedTextureHandle_t a, vr::SharedTextureHandle_t b) {
+    Conjunto x{}, y{};
+    return a == b || (AcharConjunto(a, &x) && AcharConjunto(b, &y) && x.h[0] == y.h[0]);
 }
 
 bool DirectModeWrapper::AcharConjunto(vr::SharedTextureHandle_t h, Conjunto *out) {
@@ -433,9 +448,13 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
     uint32_t nc = m_nCamadas;
     m_nCamadas = 0;
     const Camada &cena = m_camadas[0];
-    bool novo = nc > 0 && (m_nUltimas == 0 || cena[0].hTexture != m_ultimas[0][0].hTexture ||
-                           cena[1].hTexture != m_ultimas[0][1].hTexture ||
-                           std::memcmp(&cena[0].mHmdPose, &m_ultimas[0][0].mHmdPose, sizeof(vr::HmdMatrix34_t)) != 0);
+    // Quadro repetido = mesma pose de render no mesmo swap set (a textura exata não serve:
+    // o compositor pode copiar o quadro para outra textura do set a cada vsync).
+    // ponytail: com o tracking congelado (pose idêntica bit a bit) um quadro novo do jogo
+    // passa por repetido; só os divisor-1 primeiros viram gerados, depois o original volta.
+    bool novo = nc > 0 && (m_nUltimas == 0 ||
+                           std::memcmp(&cena[0].mHmdPose, &m_ultimas[0][0].mHmdPose, sizeof(vr::HmdMatrix34_t)) != 0 ||
+                           !MesmoConjunto(cena[0].hTexture, m_ultimas[0][0].hTexture));
 
     // Quadro repetido pelo compositor (o jogo atrasou): troca pelo gerado, se estiver pronto.
     if (nc > 0 && !novo && EntregarGerado(m_camadas, nc)) {
@@ -521,6 +540,8 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     for (uint32_t k = 1; k <= extras; ++k) {
         m_real->PostPresent(&um);           // o driver espera o vsync do quadro anterior
         DormirAte(t0 + k * periodo - 0.001); // e o ritmo se mantém se ele voltar cedo
+        Esquecidos(); // um swap set pode ter sido destruído enquanto esperava
+        if (m_nUltimas == 0) return;        // não reenvia handle morto
         // O Present extra usa o sync do compositor: se ele não estiver livre, parar aqui
         // é melhor que arriscar o driver travado esperando por ele.
         if (!m_fg.Travar(m_sync)) {
@@ -559,6 +580,68 @@ void DirectModeWrapper::GetFrameTiming(vr::DriverDirectMode_FrameTiming *ft) {
 }
 
 // ===========================================================================
+// DirectMode 008 <-> 009. Os structs iguais nas duas versões vão byte a byte; o
+// SubmitLayerPerEye_t da 008 é o começo do da 009.
+namespace {
+using Dm9 = vr::IVRDriverDirectModeComponent;
+using Dm8 = vr::legado::IVRDriverDirectModeComponent;
+static_assert(sizeof(Dm8::SwapTextureSetDesc_t) == sizeof(Dm9::SwapTextureSetDesc_t), "008 != 009");
+static_assert(sizeof(Dm8::SwapTextureSet_t) == sizeof(Dm9::SwapTextureSet_t), "008 != 009");
+static_assert(sizeof(Dm8::Throttling_t) == sizeof(Dm9::Throttling_t), "008 != 009");
+static_assert(offsetof(Dm9::SubmitLayerPerEye_t, flHmdPosePredictionTimeInSecondsFromNow) ==
+                  sizeof(Dm8::SubmitLayerPerEye_t), "a 008 tem de ser o começo da 009");
+
+template <class A, class B> A Copia(const B &b) {
+    static_assert(sizeof(A) == sizeof(B), "tamanhos diferentes");
+    A a;
+    std::memcpy(&a, &b, sizeof(A));
+    return a;
+}
+} // namespace
+
+void Driver008::CreateSwapTextureSet(uint32_t pid, const SwapTextureSetDesc_t *d, SwapTextureSet_t *out) {
+    Dm8::SwapTextureSetDesc_t d8{};
+    Dm8::SwapTextureSet_t o8{};
+    if (d) d8 = Copia<Dm8::SwapTextureSetDesc_t>(*d);
+    if (out) o8 = Copia<Dm8::SwapTextureSet_t>(*out);
+    m_real->CreateSwapTextureSet(pid, d ? &d8 : nullptr, out ? &o8 : nullptr);
+    if (out) *out = Copia<SwapTextureSet_t>(o8);
+}
+
+void Driver008::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) {
+    Dm8::SubmitLayerPerEye_t c[2];
+    for (int i = 0; i < 2; ++i) std::memcpy(&c[i], &perEye[i], sizeof(c[i]));
+    m_real->SubmitLayer(c);
+}
+
+void Driver008::PostPresent(const Throttling_t *t) {
+    if (!t) return m_real->PostPresent(nullptr);
+    const Dm8::Throttling_t t8 = Copia<Dm8::Throttling_t>(*t);
+    m_real->PostPresent(&t8);
+}
+
+void Frente008::CreateSwapTextureSet(uint32_t pid, const SwapTextureSetDesc_t *d, SwapTextureSet_t *out) {
+    Dm9::SwapTextureSetDesc_t d9{};
+    Dm9::SwapTextureSet_t o9{};
+    if (d) d9 = Copia<Dm9::SwapTextureSetDesc_t>(*d);
+    if (out) o9 = Copia<Dm9::SwapTextureSet_t>(*out);
+    m_dm->CreateSwapTextureSet(pid, d ? &d9 : nullptr, out ? &o9 : nullptr);
+    if (out) *out = Copia<SwapTextureSet_t>(o9);
+}
+
+void Frente008::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) {
+    Dm9::SubmitLayerPerEye_t c[2] = {}; // predição da pose = 0: a 008 não manda
+    for (int i = 0; i < 2; ++i) std::memcpy(&c[i], &perEye[i], sizeof(perEye[i]));
+    m_dm->SubmitLayer(c);
+}
+
+void Frente008::PostPresent(const Throttling_t *t) {
+    if (!t) return m_dm->PostPresent(nullptr);
+    const Dm9::Throttling_t t9 = Copia<Dm9::Throttling_t>(*t);
+    m_dm->PostPresent(&t9);
+}
+
+// ===========================================================================
 // ITrackedDeviceServerDriver
 DeviceWrapper::DeviceWrapper(vr::ITrackedDeviceServerDriver *real, const char *serial, vr::ETrackedDeviceClass cls)
     : m_real(real), m_class(cls) {
@@ -580,12 +663,14 @@ void *DeviceWrapper::GetComponent(const char *name) {
             name ? name : "(null)", comp ? "IMPLEMENTADO" : "null");
     if (!comp || !name) return comp;
 
-    if (std::strcmp(name, vr::IVRDisplayComponent_Version) == 0) {
+    const bool display3 = std::strcmp(name, vr::IVRDisplayComponent_Version) == 0;
+    if (display3 || std::strcmp(name, vr::legado::IVRDisplayComponent_Version) == 0) {
         // Só leitura: o frame gen precisa do frustum de cada olho.
-        auto *d = static_cast<vr::IVRDisplayComponent *>(comp);
         for (int olho = 0; olho < 2; ++olho) {
             float l = -1, r = 1, t = -1, b = 1;
-            d->GetProjectionRaw(olho ? vr::Eye_Right : vr::Eye_Left, &l, &r, &t, &b);
+            const vr::EVREye eye = olho ? vr::Eye_Right : vr::Eye_Left;
+            if (display3) static_cast<vr::IVRDisplayComponent *>(comp)->GetProjectionRaw(eye, &l, &r, &t, &b);
+            else static_cast<vr::legado::IVRDisplayComponent *>(comp)->GetProjectionRaw(eye, &l, &r, &t, &b);
             DefinirProjecaoGlobal(olho, l, r, t, b);
             GF_LOG("  projeção olho %d: l=%.3f r=%.3f t=%.3f b=%.3f", olho, l, r, t, b);
         }
@@ -608,10 +693,20 @@ void *Componentes::Embrulhar(const char *quem, const char *name, void *comp) {
         GF_LOG("  -> embrulhando IVRDriverDirectModeComponent (%s)", quem);
         return m_directMode.get();
     }
+    if (std::strcmp(name, vr::legado::IVRDriverDirectModeComponent_Version) == 0) {
+        if (!m_frente008) {
+            m_driver008 = std::make_unique<Driver008>(static_cast<vr::legado::IVRDriverDirectModeComponent *>(comp));
+            m_directMode008 = std::make_unique<DirectModeWrapper>(m_driver008.get());
+            m_frente008 = std::make_unique<Frente008>(m_directMode008.get());
+        }
+        GF_LOG("  -> embrulhando IVRDriverDirectModeComponent_008 (%s)", quem);
+        return m_frente008.get();
+    }
     if (std::strncmp(name, "IVRVirtualDisplay_", 18) == 0 ||
         std::strncmp(name, "IVRDriverDirectModeComponent_", 29) == 0) {
-        GF_LOG("  !! versão diferente da que conhecemos (%s / %s): repassando sem embrulhar",
-                vr::IVRVirtualDisplay_Version, vr::IVRDriverDirectModeComponent_Version);
+        GF_LOG("  !! %s: versão que o proxy não conhece (%s / %s / %s), repassando sem embrulhar: o frame gen não pega esses frames",
+                name, vr::IVRVirtualDisplay_Version, vr::IVRDriverDirectModeComponent_Version,
+                vr::legado::IVRDriverDirectModeComponent_Version);
     }
     return comp;
 }
