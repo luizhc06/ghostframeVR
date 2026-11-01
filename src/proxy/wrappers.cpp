@@ -5,6 +5,7 @@
 #include "platform.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <cstddef>
 #include <cstring>
 
@@ -90,6 +91,16 @@ double Periodo() {
     if (p > 0) return p;
     const float hz = g_hzHeadset.load();
     return hz > 20 ? 1.0 / hz : 1.0 / 90.0;
+}
+
+// O relógio próprio só roda com os Hz do headset conhecidos e plausíveis; senão, 0 (desligado).
+double PeriodoRelogio() {
+    const double p = g_periodoVsync.load();
+    const float hz = g_hzHeadset.load();
+    const double per = p > 0 ? p : hz > 0 ? 1.0 / hz : 0;
+    // O teste ponta a ponta roda o "headset" a ~33 Hz (vsync de 30 ms) e avisa por variável.
+    static const bool livre = std::getenv("GF_TESTE_HZ_LIVRE") != nullptr;
+    return per >= 1.0 / 144.5 && per <= 1.0 / 59.5 ? per : (livre && per > 0 ? per : 0);
 }
 std::mutex g_mutexProj;
 ProjecaoOlho g_proj[2];
@@ -379,6 +390,7 @@ bool DirectModeWrapper::GerarAdiante(uint32_t k) {
     m_idxPendente = idx;
     m_kPendente = k;
     m_divisorPendente = m_divisor;
+    m_passoPendente = m_alfaPasso;
     m_falhasSeguidas = 0;
     g_estatFG.estado = FG_PRONTO;
     return true;
@@ -446,6 +458,10 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
             m_desistiu = false;
             m_falhasSeguidas = m_semEntrega = 0;
             m_nUltimas = 0;
+            // Religar mede tudo de novo: médias de outra hora enganariam o relógio próprio.
+            m_intervaloJogo = m_intervaloPresent = m_tUltimoReal = m_tUltimoPresent = 0;
+            m_credito = m_ultimoIntervalo = m_tSaida = 0;
+            m_folga = 0.01;
             g_estatFG.estado = FG_DESLIGADO;
         }
         m_real->Present(syncTexture);
@@ -480,6 +496,7 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
 
     if (novo) {
         g_estatFG.reais++;
+        m_ultimoIntervalo = m_tUltimoReal > 0 && agora - m_tUltimoReal < 0.25 ? agora - m_tUltimoReal : 0;
         if (m_tUltimoReal > 0) Media(m_intervaloJogo, agora - m_tUltimoReal);
         m_tUltimoReal = agora;
         m_repeticoes = 0;
@@ -493,14 +510,31 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
         }
         m_alfaPasso = 1.0 / m_divisor;
         // Relógio próprio: sem trava e sem repetição (Present no ritmo do jogo), com o jogo
-        // claramente abaixo dos Hz do headset. 1 gerado a 60 ou 45 fps em 90 Hz, 2 a 30 fps;
-        // o último vem pelo menos meio vsync antes do próximo quadro real esperado.
-        const double per = Periodo();
+        // abaixo dos Hz do headset. Cada quadro real soma I/período - 1 de crédito; a parte
+        // inteira vira gerados (máx. 2). Se o compositor ficou esperando pelo proxy (folga ~0
+        // entre sair do PostPresent e o quadro novo), o relógio pausa 5 s: segurar o
+        // compositor não pode derrubar o fps do próprio jogo.
+        if (m_tSaida > 0) {
+            const double f = agora - m_tSaida;
+            m_folga = m_folga * 0.8 + (f < 0 ? 0 : f > 0.1 ? 0.1 : f) * 0.2;
+            if (m_folga < 0.001 && agora >= m_relogioPausaAte) {
+                m_relogioPausaAte = agora + 5.0;
+                m_folga = 0.01;
+                GF_LOG("FRAMEGEN relógio próprio pausado 5 s: o compositor estava esperando pelo proxy");
+            }
+            m_tSaida = 0;
+        }
+        const double per = PeriodoRelogio();
         m_extrasRelogio = 0;
-        if (g_estatFG.trava.load() == 0 && m_intervaloJogo > 1.3 * per && m_intervaloPresent > 0.8 * m_intervaloJogo) {
-            const double n = (m_intervaloJogo - 0.5 * per) / per;
-            m_extrasRelogio = n >= 2 ? 2 : n >= 1 ? 1 : 0;
+        if (per > 0 && g_estatFG.trava.load() == 0 && agora >= m_relogioPausaAte && m_intervaloJogo > 1.05 * per &&
+            m_intervaloPresent > 0.8 * m_intervaloJogo) {
+            double c = m_credito + m_intervaloJogo / per - 1.0;
+            c = c < 0 ? 0 : c > 2 ? 2 : c;
+            m_extrasRelogio = c >= 2 ? 2 : c >= 1 ? 1 : 0;
+            m_credito = c - m_extrasRelogio;
             if (m_extrasRelogio) m_alfaPasso = per / m_intervaloJogo;
+        } else {
+            m_credito = 0;
         }
         if (Motor()) {
             for (int olho = 0; olho < 2; ++olho) {
@@ -544,7 +578,7 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     // Sem trava: só o relógio próprio entrega algo aqui (gerado pronto depois de um quadro novo).
     const bool relogio = trava == 0 && novo && !m_desistiu && m_extrasRelogio > 0 && m_pendente && m_nUltimas;
     if ((trava == 0 && !relogio) || (trava > 0 && !nossa && (!novo || m_desistiu))) {
-        m_real->PostPresent(t);
+        PostPresentReal(t);
         return;
     }
     // Trava do SteamVR (jogo a 1/(N+1) da taxa): em vez de o driver esperar N vsyncs de
@@ -556,22 +590,35 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     // segura e o jogo está sendo previsto N quadros à frente).
     auto segurar = [&] { if (trava) DormirAte(t0 + (trava + 1) * periodo - 0.001); }; // relógio: nada a segurar
     const uint32_t extras = relogio ? m_extrasRelogio : trava < 3 ? trava : 3;
-    if (!relogio && novo && !m_desistiu && m_divisor != extras + 1) {
+    if (!relogio && novo && !m_desistiu) {
         m_divisor = extras + 1;
         m_alfaPasso = 1.0 / m_divisor;
-        if (m_pendente && m_divisorPendente != m_divisor) {
+        // O gerado pendente foi feito com outro passo (ex.: vinha do relógio): refaz.
+        if (m_pendente && std::fabs(m_passoPendente - m_alfaPasso) > 1e-6) {
             m_pendente = false;
             GerarAdiante(1); // dá tempo: a GPU tem um vsync inteiro
         }
     }
+    // Relógio: o próximo quadro real esperado (o mais cedo entre a média e o último par).
+    const double proxReal = t0 + (m_ultimoIntervalo > 0 && m_ultimoIntervalo < m_intervaloJogo ? m_ultimoIntervalo : m_intervaloJogo);
     if (!novo || m_desistiu || !m_pendente || m_nUltimas == 0) { // desligado, aquecendo ou repetido
-        if (!nossa) return m_real->PostPresent(t);
-        m_real->PostPresent(&um);
+        if (!nossa) return PostPresentReal(t);
+        PostPresentReal(&um);
         segurar();
         return;
     }
     for (uint32_t k = 1; k <= extras; ++k) {
-        m_real->PostPresent(&um);           // o driver espera o vsync do quadro anterior
+        PostPresentReal(&um);           // o driver espera o vsync do quadro anterior
+        if (relogio) {
+            // Gerado atrasado é pior que nenhum (o Pico já reprojeta), e nunca segurar o
+            // compositor até depois do próximo quadro real (contando o PostPresent do driver).
+            const double agora = NowSeconds(), prazo = t0 + k * periodo;
+            const double fim = (agora > prazo ? agora : prazo) + (m_dPost > 0.5 * periodo ? m_dPost : 0.5 * periodo);
+            if (agora > prazo - 0.0005 || fim > proxReal) {
+                m_tSaida = NowSeconds();
+                return;
+            }
+        }
         DormirAte(t0 + k * periodo - 0.001); // e o ritmo se mantém se ele voltar cedo
         Esquecidos(); // um swap set pode ter sido destruído enquanto esperava
         if (m_nUltimas == 0) return segurar(); // não reenvia handle morto
@@ -586,7 +633,12 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
             if (k < extras) GerarAdiante(k + 1);
             continue;
         }
-        // Não ficou pronto: entrega o real de novo (o mesmo que o headset mostraria).
+        // Não ficou pronto. No relógio o driver já cobre o vsync sozinho: para aqui.
+        if (relogio) {
+            m_tSaida = NowSeconds();
+            return;
+        }
+        // Com trava: entrega o real de novo (o mesmo que o headset mostraria).
         Reenviar(m_ultimas, m_nUltimas, NowSeconds() - t0);
         g_estatFG.falhas++;
         if (++m_semEntrega >= 120 && !m_desistiu) {
@@ -595,8 +647,18 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
             GF_LOG("FRAMEGEN desativado: os frames gerados não ficam prontos a tempo (GPU ocupada?)");
         }
     }
-    m_real->PostPresent(&um);
+    PostPresentReal(&um);
     if (trava > extras) segurar(); // trava acima de 3: o resto só espera
+    if (relogio) m_tSaida = NowSeconds();
+}
+
+// PostPresent do driver, medindo quanto ele demora (o relógio próprio conta com isso).
+void DirectModeWrapper::PostPresentReal(const Throttling_t *t) {
+    const double a = NowSeconds();
+    m_real->PostPresent(t);
+    const double d = NowSeconds() - a;
+    if (d >= 0 && d < 0.1) m_dPost = m_dPost > 0 ? m_dPost * 0.95 + d * 0.05 : d;
+    g_estatFG.msPostPresent.store(float(m_dPost * 1000.0), std::memory_order_relaxed);
 }
 
 void DirectModeWrapper::GetFrameTiming(vr::DriverDirectMode_FrameTiming *ft) {

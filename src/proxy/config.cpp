@@ -103,9 +103,10 @@ void Laco() {
         int estado = g_estatFG.estado.load();
         // Só o processo que vê os frames fala do frame gen.
         if ((fg && p > 0) || estado != FG_DESLIGADO) {
-            GF_LOG("FRAMEGEN estado=%s reais=%.1f/s gerados=%.1f/s falhas=%u trava=%u gpu_ms=%.2f presents=%.1f/s repetidos=%.1f/s",
+            GF_LOG("FRAMEGEN estado=%s reais=%.1f/s gerados=%.1f/s falhas=%u trava=%u gpu_ms=%.2f presents=%.1f/s repetidos=%.1f/s pp_ms=%.2f",
                    NomeEstado(estado), double(r - reais0), double(g - gerados0), g_estatFG.falhas.load(),
-                   g_estatFG.trava.load(), g_estatFG.msGpu.load(), double(p - presents0), double(rep - repetidos0));
+                   g_estatFG.trava.load(), g_estatFG.msGpu.load(), double(p - presents0), double(rep - repetidos0),
+                   g_estatFG.msPostPresent.load());
         }
         // Ligado, frames passando e nada gerado por 10 s: diz em qual etapa parou.
         semGerar = fg && p > presents0 && g == gerados0 ? semGerar + 1 : 0;

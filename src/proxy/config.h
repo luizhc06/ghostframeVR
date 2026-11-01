@@ -20,6 +20,7 @@ struct EstatFG {
     std::atomic<uint32_t> repetidos{0}; // quadros que o compositor repetiu (o jogo atrasou)
     std::atomic<uint32_t> trava{0};  // framesToThrottle visto no último PostPresent
     std::atomic<float> msGpu{-1.0f};
+    std::atomic<float> msPostPresent{-1.0f}; // quanto o PostPresent do driver demora (média)
     // Diagnóstico: headset mandando poses sem nenhum frame passar pelo proxy.
     std::atomic<uint64_t> presents{0}, poses{0};
     std::atomic<int> estado{FG_DESLIGADO};

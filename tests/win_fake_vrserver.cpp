@@ -489,6 +489,8 @@ int main(int argc, char **argv) {
     CreateDirectoryA(local.c_str(), nullptr);
     CreateDirectoryA((local + "\\ghostframeVR").c_str(), nullptr);
     SetEnvironmentVariableA("LOCALAPPDATA", local.c_str());
+    // O "headset" deste teste roda a ~33 Hz (vsync de 30 ms): o relógio próprio aceita.
+    SetEnvironmentVariableA("GF_TESTE_HZ_LIVRE", "1");
     const std::string ini = local + "\\ghostframeVR\\ghostframe.ini";
     EscreveIni(ini, false);
 
@@ -689,6 +691,59 @@ int main(int argc, char **argv) {
         CHECK(reaisIntactos == quadros);
         CHECK(gerados * 10 >= quadros * 8);
         d.Confere("d");
+    }
+
+    // ---- e) jogo a 2/3 dos Hz (como 60 fps em 90 Hz): um gerado a cada 2 reais, nunca mais
+    // Presents que os vsyncs. ----
+    std::printf("\n== e) jogo a 2/3 dos Hz sem repetir (crédito: 1 gerado a cada 2 reais) ==\n");
+    {
+        int quadros = 0, gerados = 0, presents = 0;
+        for (int k = 0; k < 80; ++k, ++jogo) {
+            const double tv = gf::NowSeconds();
+            const int de = fake.presents();
+            Vsync(c, jogo, 0);
+            const std::vector<Reg> r = Registros(fake, de);
+            if (k >= 10) {
+                quadros++;
+                presents += int(r.size());
+                gerados += r.size() == 2 && r[1].doProxy;
+            }
+            gf::DormirAte(tv + 1.5 * kVsync);
+        }
+        // 70 quadros em 70*1.5 vsyncs: o ideal é 35 gerados (headset cheio, sem passar).
+        std::printf("e) %d quadros do jogo: %d gerados (%.0f%% dos quadros), %d Presents no driver em %.0f vsyncs\n",
+                    quadros, gerados, 100.0 * gerados / quadros, presents, quadros * 1.5);
+        CHECK(gerados * 10 >= quadros * 3 && gerados * 10 <= quadros * 7);
+        CHECK(presents <= int(quadros * 1.5) + 2);
+    }
+
+    // ---- f) driver cujo PostPresent demora 20 ms (como um que espera o próprio vsync): o proxy
+    // ainda gera, mas nunca segura o compositor até depois do próximo quadro do jogo. ----
+    std::printf("\n== f) PostPresent do driver demorando 20 ms ==\n");
+    {
+        auto espera = Funcao<void (*)(int)>(hReal, "FakePico_EsperaPostPresent");
+        CHECK(espera != nullptr);
+        if (espera) espera(20);
+        int quadros = 0, gerados = 0;
+        double maxSegurou = 0;
+        for (int k = 0; k < 60; ++k, ++jogo) {
+            const double tv = gf::NowSeconds();
+            const int de = fake.presents();
+            Vsync(c, jogo, 0);
+            const double segurou = gf::NowSeconds() - tv;
+            const std::vector<Reg> r = Registros(fake, de);
+            if (k >= 10) {
+                quadros++;
+                gerados += r.size() == 2 && r[1].doProxy;
+                if (segurou > maxSegurou) maxSegurou = segurou;
+            }
+            gf::DormirAte(tv + 2 * kVsync);
+        }
+        if (espera) espera(0);
+        std::printf("f) %d quadros: %d gerados (%.0f%%), compositor preso no máximo %.1f ms (próximo quadro em %.0f ms)\n",
+                    quadros, gerados, 100.0 * gerados / quadros, maxSegurou * 1000, 2 * kVsync * 1000);
+        CHECK(maxSegurou < 2 * kVsync - 0.002);
+        CHECK(gerados * 10 >= quadros * 5);
     }
 
     // O proxy nunca segurou o sync na hora errada: driver e compositor sempre o acharam livre.

@@ -19,6 +19,9 @@
 #include <cstring>
 
 #define FAKE_EXPORT extern "C" __declspec(dllexport)
+// Milissegundos que o PostPresent demora (o do Pico de verdade pode esperar o próprio vsync).
+static int g_esperaPostPresent = 0;
+FAKE_EXPORT void FakePico_EsperaPostPresent(int ms) { g_esperaPostPresent = ms; }
 
 using Microsoft::WRL::ComPtr;
 using DM8 = vr::legado::IVRDriverDirectModeComponent;
@@ -167,7 +170,10 @@ public:
         m_camadas = 0;
         if (g_nReg < kMaxRegistros) g_reg[g_nReg++] = r;
     }
-    void PostPresent(const Throttling_t *) override { g_postPresents++; }
+    void PostPresent(const Throttling_t *) override {
+        g_postPresents++;
+        if (g_esperaPostPresent > 0) Sleep(DWORD(g_esperaPostPresent)); // um driver que demora aqui
+    }
     void GetFrameTiming(vr::DriverDirectMode_FrameTiming *) override {}
 
 private:
