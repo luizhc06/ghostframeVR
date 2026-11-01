@@ -4,6 +4,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.11-alpha] - 2026-11-01
+
 ### Adicionado
 - **Otimizar tudo** (aba VRChat): num clique, o jogo leve, perfil Desempenho, plano de energia Alto, SteamVR Home desligado e as opções de inicialização; depois confere item por item pelo que ficou gravado e mostra o que faltou e por quê.
 - Opções de inicialização gravadas direto no VRChat da sua conta Steam (localconfig.vdf, com a Steam fechada e backup), mantendo as opções que você já tinha. Só a linha do VRChat muda no arquivo.
