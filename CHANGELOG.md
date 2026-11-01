@@ -4,6 +4,10 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+### Adicionado
+- Desempenho: perfis de um clique (Qualidade, Equilibrado, Desempenho, Máximo fps) que ajustam frame gen, resolução e motion smoothing juntos. Mexeu em algo à mão, o perfil vira "personalizado".
+- Ajustes em linhas com nome e explicação curta, como num app de configurações.
+
 ## [0.2.6-alpha] - 2026-11-01
 
 ### Corrigido

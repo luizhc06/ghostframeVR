@@ -276,3 +276,29 @@ details .linha { margin-top: 6px; }
 .alvo-uso { margin: 10px 0 0; font: 11px var(--mono); color: var(--fraco); word-break: break-all; }
 .alvo-uso:empty { display: none; }
 
+
+/* ---------- perfis e linhas de ajuste (Desempenho) ---------- */
+.perfis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.perfis button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 14px;
+  border: 1px solid var(--linha-forte); background: var(--campo); color: var(--texto); text-align: left; cursor: pointer;
+}
+.perfis b { font: 700 13px var(--sans); }
+.perfis small { font: 11px var(--mono); color: var(--fraco); }
+.perfis button:hover:not(:disabled, .ativo) { border-color: var(--ciano); }
+.perfis button.ativo { border-color: var(--ciano); background: var(--ciano-esc); box-shadow: 0 0 12px rgba(0, 240, 255, .25) inset; }
+.perfis button.ativo b { color: var(--ciano); }
+.perfis button:disabled { opacity: .35; cursor: not-allowed; }
+.perfis button.ocupado { opacity: .6; }
+.perfis button:focus-visible { outline: 1px solid #fff; outline-offset: 2px; }
+@media (max-width: 900px) { .perfis { grid-template-columns: repeat(2, 1fr); } }
+
+.ajuste { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--linha); }
+.ajuste.primeiro, .painel > header + .ajuste { border-top: 0; padding-top: 0; }
+.ajuste[hidden] { display: none; }
+.ajuste.coluna { flex-direction: column; align-items: stretch; gap: 10px; }
+.ajuste h3 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.ajuste p { margin: 3px 0 0; font-size: 11px; color: var(--fraco); }
+.ajuste > .seg { flex: none; min-width: 150px; }
+.ajuste > select { flex: none; width: 210px; }
+label.ajuste { cursor: pointer; }
