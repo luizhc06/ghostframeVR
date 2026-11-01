@@ -423,28 +423,40 @@ pub fn ler_log(texto: &str) -> Value {
             Some((it.next()?, it.next()?.parse().ok()?, msg))
         })
         .collect();
-    // O processo que importa é o vrserver: o último que logou Provider/STATS.
-    let Some(pid) = linhas
-        .iter()
-        .rev()
-        .find(|l| l.2.starts_with("STATS") || l.2.starts_with("Provider::Init"))
-        .or(linhas.last())
-        .map(|l| l.0)
-    else {
-        return Value::Null;
+    // Dois processos podem escrever: o vrserver (Provider::Init) e, em drivers que
+    // entregam o vídeo pelo plugin do compositor, o vrcompositor (CompositorPlugin::Init).
+    let ultimo = |pat: &str| linhas.iter().rev().find(|l| l.2.starts_with(pat)).map(|l| l.0);
+    let mut pids: Vec<&str> = [ultimo("Provider::Init"), ultimo("CompositorPlugin::Init")].into_iter().flatten().collect();
+    pids.dedup();
+    if pids.is_empty() {
+        match linhas.iter().rev().find(|l| l.2.starts_with("STATS")).or(linhas.last()) {
+            Some(l) => pids.push(l.0),
+            None => return Value::Null,
+        }
+    }
+    let pid = pids[0];
+    // Só a última sessão de cada pid. Cada processo conta o tempo desde que abriu o log:
+    // alinha os relógios pelo fim (as duas sessões estão vivas ao mesmo tempo).
+    let sessao = |p: &str| -> Vec<(f64, &str)> {
+        let ini = texto.rfind(&format!("(pid {p})")).unwrap_or(0);
+        texto[ini..]
+            .lines()
+            .filter_map(|l| {
+                let (c, msg) = l.strip_prefix('[')?.split_once("] ")?;
+                let mut it = c.split_whitespace();
+                (it.next()? == p).then_some(())?;
+                Some((it.next()?.parse::<f64>().ok()?, msg))
+            })
+            .collect()
     };
-    // Só a última sessão desse pid.
-    let cab = format!("(pid {pid})");
-    let ini = texto.rfind(&cab).unwrap_or(0);
-    let linhas: Vec<_> = texto[ini..]
-        .lines()
-        .filter_map(|l| {
-            let (c, msg) = l.strip_prefix('[')?.split_once("] ")?;
-            let mut it = c.split_whitespace();
-            (it.next()? == pid).then_some(())?;
-            Some((it.next()?.parse::<f64>().ok()?, msg))
-        })
-        .collect();
+    let sessoes: Vec<Vec<(f64, &str)>> = pids.iter().map(|p| sessao(p)).collect();
+    let t_ref = sessoes[0].last().map(|l| l.0).unwrap_or(0.0);
+    let mut linhas: Vec<(f64, &str)> = Vec::new();
+    for s in &sessoes {
+        let fim = s.last().map(|l| l.0).unwrap_or(0.0);
+        linhas.extend(s.iter().map(|(t, m)| (t - fim + t_ref, *m)));
+    }
+    linhas.sort_by(|a, b| a.0.total_cmp(&b.0));
 
     let mut hmd = false;
     let mut video = Value::Null;
@@ -808,7 +820,11 @@ mod testes {
 [    22     2.000] STATS DirectMode::Present            71.9/s  dt(ms) avg=13.91 min=12.00 max=20.50\n\
 [    22     2.100]   !! versão diferente da que conhecemos\n\
 [    22     2.200] FRAMEGEN falhou: Gerar (repassando o original)\n\
-[    22     4.000] FRAMEGEN estado=pronto reais=45.0/s gerados=44.5/s falhas=1 trava=1 gpu_ms=1.42\n";
+[    22     4.000] FRAMEGEN estado=pronto reais=45.0/s gerados=44.5/s falhas=1 trava=1 gpu_ms=1.42\n\
+\n===== nova sessao (pid 40) log=C:/x/ghostframe.log =====\n\
+[    40     0.010] CompositorPlugin::Init -> 0\n\
+[    40     0.020] CompositorPlugin::GetComponent(\"IVRDriverDirectModeComponent_009\") -> IMPLEMENTADO\n\
+[    40     1.500] STATS DirectMode::Present            44.0/s  dt(ms) avg=22.70 min=21.00 max=25.00\n";
         let r = ler_log(log);
         assert_eq!(r["pid"], "22");
         assert_eq!(r["hmd"], true);
@@ -816,9 +832,10 @@ mod testes {
         assert_eq!(r["depth"], true);
         assert_eq!(r["motionSmoothing"], "off");
         assert_eq!(r["render"], "2160x2160");
-        assert_eq!(r["stats"]["DirectMode::Present"], json!([[2.0, 71.9, 13.91, 12.0, 20.5]]));
+        assert_eq!(r["stats"]["DirectMode::Present"], json!([[2.0, 71.9, 13.91, 12.0, 20.5], [4.0, 44.0, 22.7, 21.0, 25.0]]));
         assert_eq!(r["avisos"].as_array().unwrap().len(), 2);
-        assert_eq!(r["componentes"], json!(["HMD: IVRDriverDirectModeComponent_009"]));
+        assert_eq!(r["componentes"], json!(["HMD: IVRDriverDirectModeComponent_009", "CompositorPlugin: IVRDriverDirectModeComponent_009"]));
+        // O ponto do compositor (t 1.5 no relógio dele) entra alinhado pelo fim com o vrserver (4.0).
         assert_eq!(r["interfaces"], json!(["IVRServerDriverHost_006"]));
         assert_eq!(r["semFrames"], false);
         assert_eq!(r["framegen"]["estado"], "pronto");

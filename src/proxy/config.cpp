@@ -84,8 +84,8 @@ void Laco() {
         if (g_estatFG.presents.load() == 0 && g_estatFG.poses.load() > 0) ++semFrames;
         if (semFrames >= 15 && !avisou) {
             avisou = true;
-            GF_LOG("!! headset ativo há 15 s e nenhum frame passou pelo proxy: o driver usa outro "
-                   "caminho de vídeo (veja os GetComponent e 'declara interface' no começo da sessão)");
+            GF_LOG("!! headset ativo há 15 s e nenhum frame passou pelo proxy neste processo (vrserver): "
+                   "se o driver usa o plugin do compositor, os frames passam no vrcompositor.exe");
         }
         bool fg = g_opcoes.framegen.load();
 
@@ -93,7 +93,8 @@ void Laco() {
         if (tick % 2) continue;
         uint32_t r = g_estatFG.reais.load(), g = g_estatFG.gerados.load();
         int estado = g_estatFG.estado.load();
-        if (fg || estado != FG_DESLIGADO) {
+        // Só o processo que vê os frames (vrserver ou vrcompositor) fala do frame gen.
+        if ((fg && g_estatFG.presents.load() > 0) || estado != FG_DESLIGADO) {
             GF_LOG("FRAMEGEN estado=%s reais=%.1f/s gerados=%.1f/s falhas=%u trava=%u gpu_ms=%.2f",
                    NomeEstado(estado), (r - reais0) / 2.0, (g - gerados0) / 2.0, g_estatFG.falhas.load(),
                    g_estatFG.trava.load(), g_estatFG.msGpu.load());
