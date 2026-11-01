@@ -214,6 +214,7 @@ $("#btn-autoteste").onclick = async (ev) => {
       r.pctTrava != null ? `<li><b>com trava</b> ${fmt(r.pctTrava)}% dos quadros extras gerados</li>` : "",
       ...(r.falhas || []).slice(0, 5).map((f) => `<li class="falta"><b>erro</b> ${esc(f)}</li>`),
     ];
+    if (r.sonda && (r.skip || !r.passou)) linhas.push(`<li><b>sonda</b> ${esc(r.sonda)}</li>`);
     html(caixa, `<ul class="conferencia">${linhas.join("")}</ul>`);
     toast(r.passou ? `Autoteste ok em ${fmt(r.segundos, 1)} s` : "O autoteste não passou: veja o resultado", !r.passou);
   } catch (e) {

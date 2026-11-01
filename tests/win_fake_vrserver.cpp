@@ -188,6 +188,21 @@ std::vector<uint8_t> Le(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11Textu
 
 // O caminho real precisa de device de hardware que compartilhe textura por handle legado
 // com outro device, com keyed mutex (o WARP não faz isso). Descobre antes de começar.
+// Numa GPU de verdade a escrita entra numa fila: a sonda escreve como o compositor falso
+// (UpdateSubresource + espera a GPU) e, para diagnóstico, também do jeito antigo (conteúdo na
+// criação) e com o keyed mutex na própria textura. Imprime o que cada jeito deu.
+std::string Diferenca(const std::vector<uint8_t> &lido, const std::vector<uint8_t> &esperado) {
+    if (lido.size() != esperado.size()) return "leitura falhou";
+    size_t n = 0, primeiro = lido.size();
+    for (size_t i = 0; i < lido.size(); ++i)
+        if (lido[i] != esperado[i]) { if (!n++) primeiro = i; }
+    if (!n) return "ok";
+    char b[160];
+    std::snprintf(b, sizeof(b), "%zu de %zu bytes diferentes (1o em %zu: lido %u, esperado %u)", n, lido.size(),
+                  primeiro, unsigned(lido[primeiro]), unsigned(esperado[primeiro]));
+    return b;
+}
+
 bool Sonda(std::string &motivo) {
     ComPtr<ID3D11Device> a, b;
     ComPtr<ID3D11DeviceContext> ca, cb;
@@ -200,29 +215,65 @@ bool Sonda(std::string &motivo) {
     std::printf("adaptador padrão: %s\n", adaptador.c_str());
     std::vector<uint8_t> px(64 * 64 * 4);
     for (size_t i = 0; i < px.size(); ++i) px[i] = uint8_t(i * 7 + 3);
-    ComPtr<ID3D11Texture2D> ta = CriaTextura(a.Get(), 64, 64, D3D11_RESOURCE_MISC_SHARED, px.data()), tb;
+
+    // 1) Como o compositor falso: textura compartilhada vazia, UpdateSubresource, espera a GPU.
+    ComPtr<ID3D11Texture2D> ta = CriaTextura(a.Get(), 64, 64, D3D11_RESOURCE_MISC_SHARED, nullptr), tb;
     const vr::SharedTextureHandle_t h = Handle(ta.Get());
     if (!h) {
         motivo = "o adaptador " + adaptador + " não cria textura compartilhada (MISC_SHARED + GetSharedHandle)";
         return false;
     }
-    Espera(a.Get(), ca.Get());
     if (FAILED(hr = Abre(b.Get(), h, tb))) {
         motivo = "no adaptador " + adaptador + " outro device não abre a textura compartilhada: " + Hex(hr);
         return false;
     }
-    if (Le(b.Get(), cb.Get(), tb.Get()) != px) {
-        motivo = "no adaptador " + adaptador + " a textura compartilhada chega com outro conteúdo no outro device";
-        return false;
+    ca->UpdateSubresource(ta.Get(), 0, nullptr, px.data(), 64 * 4, 0);
+    ca->Flush();
+    Espera(a.Get(), ca.Get());
+    std::string r1 = Diferenca(Le(b.Get(), cb.Get(), tb.Get()), px);
+    // Se chegou diferente, a escrita pode só estar atrasada: lê de novo depois de um tempo.
+    std::string r1b = r1;
+    for (int i = 0; i < 5 && r1b != "ok"; ++i) {
+        Sleep(20);
+        r1b = Diferenca(Le(b.Get(), cb.Get(), tb.Get()), px);
     }
-    ComPtr<ID3D11Texture2D> ka = CriaTextura(a.Get(), 16, 16, D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, nullptr), kb;
+
+    // 2) Jeito antigo: conteúdo passado na criação da textura compartilhada.
+    ComPtr<ID3D11Texture2D> ia = CriaTextura(a.Get(), 64, 64, D3D11_RESOURCE_MISC_SHARED, px.data()), ib;
+    Espera(a.Get(), ca.Get());
+    std::string r2 = Handle(ia.Get()) && SUCCEEDED(Abre(b.Get(), Handle(ia.Get()), ib)) ? Diferenca(Le(b.Get(), cb.Get(), ib.Get()), px) : "não abriu";
+
+    // 3) Keyed mutex na própria textura (escrita e leitura com a chave).
+    ComPtr<ID3D11Texture2D> ka = CriaTextura(a.Get(), 64, 64, D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, nullptr), kb;
     const vr::SharedTextureHandle_t hk = Handle(ka.Get());
-    ComPtr<IDXGIKeyedMutex> km;
-    if (!hk || FAILED(Abre(b.Get(), hk, kb)) || FAILED(kb.As(&km)) || km->AcquireSync(0, 1000) != S_OK) {
-        motivo = "no adaptador " + adaptador + " não há keyed mutex entre devices (MISC_SHARED_KEYEDMUTEX)";
+    ComPtr<IDXGIKeyedMutex> kma, kmb;
+    std::string r3 = "não abriu";
+    if (hk && SUCCEEDED(Abre(b.Get(), hk, kb)) && SUCCEEDED(ka.As(&kma)) && SUCCEEDED(kb.As(&kmb))) {
+        if (kma->AcquireSync(0, 1000) == S_OK) {
+            ca->UpdateSubresource(ka.Get(), 0, nullptr, px.data(), 64 * 4, 0);
+            kma->ReleaseSync(1);
+            if (kmb->AcquireSync(1, 1000) == S_OK) {
+                r3 = Diferenca(Le(b.Get(), cb.Get(), kb.Get()), px);
+                kmb->ReleaseSync(0);
+            } else {
+                r3 = "o outro device não pegou a chave";
+            }
+        } else {
+            r3 = "não pegou a chave";
+        }
+    }
+    std::printf("sonda: escrita+espera=%s; relida=%s; conteúdo na criação=%s; keyed mutex=%s\n", r1.c_str(),
+                r1b.c_str(), r2.c_str(), r3.c_str());
+    // O teste usa o jeito 1 (como o SteamVR: escreve, espera, solta o sync). Se nem relendo
+    // ele funcionar, os números do teste não valeriam nesta máquina.
+    if (r1b != "ok") {
+        motivo = "no adaptador " + adaptador + " a textura compartilhada chega diferente no outro device (escrita+espera: " + r1b + ")";
         return false;
     }
-    km->ReleaseSync(0);
+    if (r3 == "não abriu" || r3 == "não pegou a chave" || r3 == "o outro device não pegou a chave") {
+        motivo = "no adaptador " + adaptador + " não há keyed mutex entre devices (" + r3 + ")";
+        return false;
+    }
     return true;
 }
 
@@ -513,7 +564,8 @@ int main(int argc, char **argv) {
             }
             ++jogo;
         }
-        std::printf("b) motor pronto em %.1f s\n", gf::NowSeconds() - t0);
+        if (fake.conjuntosDoProxy() > 0) std::printf("b) motor pronto em %.1f s\n", gf::NowSeconds() - t0);
+        else std::printf("b) motor não ficou pronto em %.0f s (veja FrameGen no log abaixo)\n", gf::NowSeconds() - t0);
         CHECK(fake.conjuntosDoProxy() > 0);
         if (fake.conjuntosDoProxy() == 0) {
             MostraLog(pastaProxy + "ghostframe.log");
