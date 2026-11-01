@@ -191,6 +191,29 @@ $$("#perfis button").forEach((b) => (b.onclick = async () => {
   }
 }));
 
+// ---------- VRChat: opções de inicialização (só montadas para copiar) e config.json ----------
+let vrcInfo = null;
+function argsVrchat() {
+  const a = [];
+  if (config["vrchat.prioridade"] !== "0") a.push(`--process-priority=${config["vrchat.prioridade"]}`);
+  if (config["vrchat.thread"] !== "0") a.push(`--main-thread-priority=${config["vrchat.thread"]}`);
+  // Primeira metade das threads (o CCD 0 num Ryzen de dois CCDs), como a doc sugere.
+  const metade = Math.floor((vrcInfo?.threads || 0) / 2);
+  if (vrcInfo?.amd && config["vrchat.afinidade"] === "1" && metade > 0)
+    a.push(`--affinity=${((1n << BigInt(metade)) - 1n).toString(16).toUpperCase()}`);
+  return a.join(" ");
+}
+$("#btn-vrc-copiar").onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($("#vrc-args").value);
+    toast("Copiado. Cole nas opções de inicialização do VRChat na Steam.");
+  } catch (e) {
+    toast("Não deu para copiar: selecione o texto e copie à mão.", true);
+  }
+};
+$("#vrc-particulas").onchange = (ev) => chamar("vrchat_particulas", { ligar: ev.target.checked });
+$("#btn-graficos").onclick = () => chamar("abrir_graficos_windows");
+
 // ---------- prévia do HUD: no máximo um pedido em voo, mais um na fila ----------
 let previaOcupada = false, previaDeNovo = false;
 async function previa() {
@@ -460,6 +483,22 @@ function render(e) {
     b.classList.toggle("ativo", b.dataset.perfil === atual);
     b.disabled = !pode || (PERFIS[b.dataset.perfil].cfg["framegen.ativo"] === "1" && !framegenDisponivel);
   });
+
+  // ----- VRChat -----
+  vrcInfo = e.vrchat || null;
+  $("#vrc-afinidade-linha").hidden = !vrcInfo?.amd;
+  const args = argsVrchat();
+  if ($("#vrc-args").value !== args) $("#vrc-args").value = args;
+  $("#btn-vrc-copiar").disabled = !args;
+  const lim = vrcInfo?.limitador;
+  $("#vrc-particulas").checked = !!lim;
+  $("#vrc-particulas").disabled = !vrcInfo || lim == null;
+  classe($("#vrc-part-tag"), "tag " + (lim ? "ok" : ""));
+  texto($("#vrc-part-tag"), lim ? "ligado" : "");
+  texto($("#vrc-erro"), vrcInfo?.erroConfig || "");
+  const hags = vrcInfo?.hags;
+  classe($("#vrc-hags"), "tag " + (hags ? "ok" : hags === false ? "alerta" : ""));
+  texto($("#vrc-hags"), hags ? "ligado" : hags === false ? "desligado" : "");
 
   // ----- HUD -----
   const erro = e.hud?.erro;

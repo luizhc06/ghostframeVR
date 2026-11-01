@@ -30,7 +30,78 @@ pub const PADROES: &[(&str, &str)] = &[
     ("app.alvo", ""),
     ("app.jogo_fixo", ""), // vazio = trava no jogo que estiver aberto
     ("app.autostart", "0"),
+    // Opções de inicialização do VRChat que a aba VRChat monta para copiar (não vão a lugar nenhum sozinhas).
+    ("vrchat.prioridade", "1"),
+    ("vrchat.thread", "0"),
+    ("vrchat.afinidade", "0"),
 ];
+
+// ---------------------------------------------------------------------------
+// config.json do VRChat (%LocalAppdata%Low\VRChat\VRChat). Só chaves documentadas pelo
+// VRChat: https://docs.vrchat.com/docs/avatar-particle-system-limits
+
+const VRC_LIMITADOR: &str = "particle_system_limiter";
+/// Os padrões da documentação, gravados só se o arquivo ainda não tiver a chave.
+const VRC_PS_PADRAO: &[(&str, i64)] = &[
+    ("ps_max_particles", 50000),
+    ("ps_max_systems", 200),
+    ("ps_max_emission", 5000),
+    ("ps_max_total_emission", 40000),
+    ("ps_mesh_particle_divider", 60),
+    ("ps_mesh_particle_poly_limit", 50000),
+    ("ps_collision_penalty_high", 50),
+    ("ps_collision_penalty_med", 30),
+    ("ps_collision_penalty_low", 10),
+    ("ps_trails_penalty", 10),
+];
+
+fn vrc_raiz(texto: &str) -> Result<Map<String, Value>, String> {
+    if texto.trim().is_empty() {
+        return Ok(Map::new()); // o VRChat não cria o arquivo sozinho
+    }
+    match serde_json::from_str::<Value>(texto) {
+        Ok(Value::Object(m)) => Ok(m),
+        Ok(_) => Err("o config.json do VRChat não é um objeto JSON".into()),
+        Err(e) => Err(format!("o config.json do VRChat é um JSON inválido ({e}): não mexi nele")),
+    }
+}
+
+/// O limitador de partículas está ligado nesse config.json? Erro = arquivo inválido.
+pub fn vrc_limitador(texto: &str) -> Result<bool, String> {
+    let m = vrc_raiz(texto)?;
+    Ok(m.get("betas").and_then(Value::as_array).is_some_and(|b| b.iter().any(|x| x == VRC_LIMITADOR)))
+}
+
+/// O mesmo config.json com o limitador ligado ou desligado; o resto do arquivo fica igual.
+pub fn vrc_com_limitador(texto: &str, ligar: bool) -> Result<String, String> {
+    let mut m = vrc_raiz(texto)?;
+    let betas = m.entry("betas").or_insert_with(|| json!([]));
+    let Some(b) = betas.as_array_mut() else { return Err("\"betas\" no config.json do VRChat não é uma lista".into()) };
+    b.retain(|x| x != VRC_LIMITADOR);
+    if ligar {
+        b.push(json!(VRC_LIMITADOR));
+        for (k, v) in VRC_PS_PADRAO {
+            m.entry(*k).or_insert(json!(v));
+        }
+    }
+    serde_json::to_string_pretty(&Value::Object(m)).map_err(|e| e.to_string())
+}
+
+/// CPU AMD? A afinidade só é recomendada pelo VRChat em AMD (latência entre CCX).
+pub fn cpu_amd() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        // SAFETY: CPUID existe em todo x86_64.
+        let r = unsafe { std::arch::x86_64::__cpuid(0) };
+        let mut v = [0u8; 12];
+        v[..4].copy_from_slice(&r.ebx.to_le_bytes());
+        v[4..8].copy_from_slice(&r.edx.to_le_bytes());
+        v[8..].copy_from_slice(&r.ecx.to_le_bytes());
+        &v == b"AuthenticAMD"
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    false
+}
 
 fn erro(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::Other, msg.into())
@@ -687,6 +758,33 @@ pub fn gravar_atomico(arquivo: &Path, conteudo: &str) -> io::Result<()> {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn config_do_vrchat_limitador_de_particulas() {
+        // Sem arquivo: liga criando só o necessário.
+        assert_eq!(vrc_limitador(""), Ok(false));
+        let novo = vrc_com_limitador("", true).unwrap();
+        assert_eq!(vrc_limitador(&novo), Ok(true));
+        let v: Value = serde_json::from_str(&novo).unwrap();
+        assert_eq!(v["ps_max_particles"], 50000);
+        // Arquivo do usuário: o resto fica igual, valores dele não são trocados pelos padrões.
+        let dele = r#"{"cache_size": 60, "betas": ["outro"], "ps_max_particles": 1000}"#;
+        let ligado: Value = serde_json::from_str(&vrc_com_limitador(dele, true).unwrap()).unwrap();
+        assert_eq!(ligado["cache_size"], 60);
+        assert_eq!(ligado["ps_max_particles"], 1000);
+        assert_eq!(ligado["betas"], json!(["outro", "particle_system_limiter"]));
+        // Ligar de novo não duplica; desligar tira só o nosso.
+        let duas = vrc_com_limitador(&vrc_com_limitador(dele, true).unwrap(), true).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&duas).unwrap()["betas"], json!(["outro", "particle_system_limiter"]));
+        let desligado: Value = serde_json::from_str(&vrc_com_limitador(&duas, false).unwrap()).unwrap();
+        assert_eq!(desligado["betas"], json!(["outro"]));
+        assert_eq!(vrc_limitador(&serde_json::to_string(&desligado).unwrap()), Ok(false));
+        // Inválido: erro, nunca regrava.
+        assert!(vrc_limitador("{ quebrado").is_err());
+        assert!(vrc_com_limitador("{ quebrado", true).is_err());
+        assert!(vrc_com_limitador("[1, 2]", true).is_err());
+        assert!(vrc_com_limitador(r#"{"betas": "x"}"#, true).is_err());
+    }
 
     fn tmp(nome: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("gf-teste-{nome}-{}", std::process::id()));

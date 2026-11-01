@@ -25,9 +25,10 @@
 <nav class="abas">
   <button data-aba="painel" class="ativa"><span>01</span>Painel</button>
   <button data-aba="desempenho"><span>02</span>Desempenho</button>
-  <button data-aba="hud"><span>03</span>HUD</button>
-  <button data-aba="instalacao"><span>04</span>Instalação</button>
-  <button data-aba="log"><span>05</span>Log</button>
+  <button data-aba="vrchat"><span>03</span>VRChat</button>
+  <button data-aba="hud"><span>04</span>HUD</button>
+  <button data-aba="instalacao"><span>05</span>Instalação</button>
+  <button data-aba="log"><span>06</span>Log</button>
   <div class="mascote">
     <span class="ghost flutua" data-ghost="5"></span>
     <p id="status-curto">--</p>
@@ -149,6 +150,67 @@
           <span class="sw"><input type="checkbox" id="ms"><i></i></span>
         </label>
       </div>
+    </div>
+  </section>
+
+  <!-- VRCHAT -->
+  <section id="aba-vrchat" class="aba">
+    <div class="duas">
+      <div class="painel">
+        <header><h2>Inicialização</h2></header>
+        <p class="nota topo">Cole em Steam → VRChat → Propriedades → Opções de inicialização.</p>
+        <div class="ajuste primeiro">
+          <div><h3>Prioridade do processo</h3><p>O VRChat passa na frente de outros programas na CPU</p></div>
+          <div class="seg mini" data-chave="vrchat.prioridade">
+            <button data-valor="0">Normal</button>
+            <button data-valor="1">Acima</button>
+            <button data-valor="2">Alta</button>
+          </div>
+        </div>
+        <div class="ajuste">
+          <div><h3>Thread principal</h3><p>A doc do VRChat avisa: exagerar pode travar o PC</p></div>
+          <div class="seg mini" data-chave="vrchat.thread">
+            <button data-valor="0">Normal</button>
+            <button data-valor="1">Acima</button>
+          </div>
+        </div>
+        <label class="ajuste" id="vrc-afinidade-linha" hidden>
+          <div><h3>Afinidade (AMD)</h3><p>Só para Ryzen com dois CCDs e engasgos: prende o jogo na primeira metade dos núcleos</p></div>
+          <span class="sw"><input type="checkbox" data-chave="vrchat.afinidade"><i></i></span>
+        </label>
+        <div class="copiar">
+          <input type="text" id="vrc-args" readonly aria-label="Opções de inicialização do VRChat">
+          <button class="btn" id="btn-vrc-copiar">Copiar</button>
+        </div>
+      </div>
+
+      <div class="coluna-paineis">
+        <div class="painel">
+          <header><h2>Partículas</h2><span class="tag" id="vrc-part-tag"></span></header>
+          <label class="ajuste primeiro">
+            <div><h3>Limitar partículas de avatares</h3><p>Limitador oficial do VRChat (config.json). Vale ao abrir o VRChat</p></div>
+            <span class="sw"><input type="checkbox" id="vrc-particulas"><i></i></span>
+          </label>
+          <p class="erro-linha" id="vrc-erro"></p>
+        </div>
+        <div class="painel">
+          <header><h2>Windows</h2></header>
+          <div class="ajuste primeiro">
+            <div><h3>Agendamento de GPU por hardware <span class="tag" id="vrc-hags"></span></h3><p>Em Configurações → Tela → Gráficos. Muda depois de reiniciar</p></div>
+            <button class="btn" id="btn-graficos">Abrir</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="painel">
+      <header><h2>No jogo</h2></header>
+      <ul class="dicas">
+        <li><b>Bloqueie avatares Very Poor</b> (e Poor, se ainda pesar). Bloqueado por desempenho vira fallback e não roda na sua CPU.</li>
+        <li><b>Maximum Shown Avatars</b> em 10 a 15 ajuda pouco na CPU: segundo o VRChat, avatar escondido ainda roda animator.</li>
+        <li><b>Espelho</b> só quando for usar: ele desenha a cena de novo.</li>
+        <li><b>Perfil Desempenho</b> do ghostframe: o jogo monta metade dos quadros e a GPU gera o resto.</li>
+      </ul>
     </div>
   </section>
 

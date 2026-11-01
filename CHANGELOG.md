@@ -4,6 +4,9 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+### Adicionado
+- Aba VRChat: monta as opções de inicialização documentadas pelo VRChat (prioridade do processo, da thread principal e afinidade só em AMD) para copiar na Steam; liga o limitador oficial de partículas no config.json do VRChat (com backup); mostra se o agendamento de GPU por hardware do Windows está ligado; e lista os ajustes do jogo que aliviam a CPU. Nada é injetado no VRChat.
+
 ## [0.2.8-alpha] - 2026-11-01
 
 ### Corrigido

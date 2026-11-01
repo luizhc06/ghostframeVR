@@ -59,6 +59,25 @@ mod win {
     fn steamvr_aberto() -> bool {
         vr::processo_rodando("vrserver.exe")
     }
+    /// %LocalAppdata%Low\VRChat\VRChat\config.json (doc do VRChat).
+    fn vrchat_config() -> PathBuf {
+        local().parent().map(Path::to_path_buf).unwrap_or_default().join("LocalLow").join("VRChat").join("VRChat").join("config.json")
+    }
+    /// Agendamento de GPU por hardware (HwSchMode: 2 ligado, 1 desligado). Só muda com
+    /// reinício do Windows: lido uma vez por execução do app, sem abrir janela.
+    fn hags() -> Option<bool> {
+        static HAGS: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+        *HAGS.get_or_init(|| {
+            let out = Command::new("reg")
+                .args(["query", r"HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers", "/v", "HwSchMode"])
+                .creation_flags(SEM_JANELA)
+                .output()
+                .ok()?;
+            let txt = String::from_utf8_lossy(&out.stdout);
+            let v = txt.split_whitespace().last()?.trim_start_matches("0x");
+            u32::from_str_radix(v, 16).ok().map(|n| n == 2)
+        })
+    }
     /// Jogo da trava: o fixado pelo usuário ou o que está aberto no SteamVR agora.
     fn jogo(cfg: &Map<String, Value>, painel: &companion::Painel) -> String {
         match cfg.get("app.jogo_fixo").and_then(Value::as_str).unwrap_or("") {
@@ -113,6 +132,15 @@ mod win {
             "steamvr": steamvr,
             "jogos": jogos,
             "pastaApp": pasta_app(),
+        });
+        let texto = fs::read_to_string(vrchat_config()).unwrap_or_default();
+        r["vrchat"] = json!({
+            "aberto": vr::processo_rodando("VRChat.exe"),
+            "limitador": core::vrc_limitador(&texto).ok(),
+            "erroConfig": core::vrc_limitador(&texto).err(),
+            "amd": core::cpu_amd(),
+            "threads": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
+            "hags": hags(),
         });
         let p = c.painel.lock().unwrap_or_else(|e| e.into_inner());
         r["vr"] = p.vr.clone();
@@ -295,6 +323,31 @@ mod win {
         Ok(dir.display().to_string())
     }
 
+    /// Liga/desliga o limitador de partículas no config.json do VRChat (backup na 1ª vez).
+    #[tauri::command]
+    fn vrchat_particulas(ligar: bool) -> Result<String, String> {
+        let p = vrchat_config();
+        let texto = fs::read_to_string(&p).unwrap_or_default();
+        let novo = core::vrc_com_limitador(&texto, ligar)?;
+        let pasta = p.parent().ok_or("caminho do VRChat inválido")?;
+        if !pasta.is_dir() {
+            return Err("não achei a pasta do VRChat: abra o VRChat uma vez antes".into());
+        }
+        let backup = p.with_extension("json.ghostframe-backup");
+        if !texto.is_empty() && !backup.exists() {
+            fs::write(&backup, &texto).map_err(|e| format!("backup do config.json: {e}"))?;
+        }
+        core::gravar_atomico(&p, &novo).map_err(|e| format!("config.json do VRChat: {e}"))?;
+        let quando = if vr::processo_rodando("VRChat.exe") { " Vale quando o VRChat abrir de novo." } else { "" };
+        Ok(format!("Limitador de partículas {}.{quando}", if ligar { "ligado" } else { "desligado" }))
+    }
+
+    /// Abre Configurações → Sistema → Tela → Gráficos do Windows (o app não muda sozinho).
+    #[tauri::command]
+    fn abrir_graficos_windows() {
+        let _ = Command::new("explorer").arg("ms-settings:display-advancedgraphics").spawn();
+    }
+
     #[tauri::command]
     fn abrir_pasta(caminho: String) {
         let p = PathBuf::from(caminho);
@@ -322,7 +375,8 @@ mod win {
                 }
             }))
             .invoke_handler(tauri::generate_handler![
-                estado, salvar_config, escolher_alvo, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta
+                estado, salvar_config, escolher_alvo, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta,
+                vrchat_particulas, abrir_graficos_windows
             ])
             .setup(move |app| {
                 let painel = Arc::new(Mutex::new(companion::Painel::default()));
