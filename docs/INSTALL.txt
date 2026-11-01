@@ -11,7 +11,7 @@ PELO APP (recomendado)
 3. Aba Instalação: confira se o Automático achou o driver do seu headset
    (ex.: "usando Pico Connect"). Se não achou, cole a pasta do driver no
    campo e aperte Enter. Clique em INSTALAR (faz backup antes).
-4. Aba Desempenho: Frame gen em Auto.
+4. Aba Desempenho: ligue a chave Frame gen (Auto ou Manual).
 5. Aba HUD: ligue o HUD (vire o pulso para o rosto para ver no headset).
 6. Abra o programa do headset e o SteamVR e jogue.
 7. Aba Log: "Gerar relatório" junta os arquivos para mandar em

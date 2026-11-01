@@ -4,6 +4,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.6-alpha] - 2026-11-01
+
+### Corrigido
+- **Frame gen nunca ligava com o Pico Connect.** O driver da Pico usa a versão 008 do DirectMode (`IVRDriverDirectModeComponent_008`, SDK antigo) e o proxy só conhecia a 009: repassava sem embrulhar, então nenhum frame passava pelo frame gen. Agora a 008 é embrulhada, com a definição exata copiada do SDK oficial da Valve, e passa pelo mesmo frame gen. A explicação da 0.2.4 (plugin do compositor) estava errada: o SteamVR nunca pede o plugin ao Pico.
+- Projeção dos olhos lida também do `IVRDisplayComponent_002` (Pico).
+- Quadro repetido pelo compositor é reconhecido pela pose de render, mesmo que venha em outra textura.
+
+### Mudado
+- Desempenho: chave grande de ligar/desligar o frame gen. Auto/Manual só aparece com ele ligado e fica lembrado ao desligar.
+
 ## [0.2.5-alpha] - 2026-10-31
 
 ### Mudado
