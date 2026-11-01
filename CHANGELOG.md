@@ -4,6 +4,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.13-alpha] - 2026-11-01
+
 ### Corrigido
 - Autoteste: na RTX 3060 do primeiro usuário ele pulava na sonda inicial ("a textura compartilhada chega com outro conteúdo"). A sonda escrevia de um jeito que GPU de verdade não garante (conteúdo na criação da textura). Agora escreve como o compositor (UpdateSubresource + espera a GPU), relê se chegar atrasado e mostra o resultado de cada jeito. Conferido numa GPU real via Proton/DXVK.
 - Shader do frame gen compila também em compiladores mais restritos ([numthreads] com valor pronto).
