@@ -22,6 +22,10 @@
 // Milissegundos que o PostPresent demora (o do Pico de verdade pode esperar o próprio vsync).
 static int g_esperaPostPresent = 0;
 FAKE_EXPORT void FakePico_EsperaPostPresent(int ms) { g_esperaPostPresent = ms; }
+// Ler a imagem de volta no Present (para medir o quadrado) é caro no adaptador em software da
+// CI; os cenários que só contam quadros desligam, e o Present fica rápido como o de um driver.
+static int g_lerImagem = 1;
+FAKE_EXPORT void FakePico_LerImagem(int ler) { g_lerImagem = ler; }
 
 using Microsoft::WRL::ComPtr;
 using DM8 = vr::legado::IVRDriverDirectModeComponent;
@@ -165,7 +169,7 @@ public:
         if (Conjunto *c = Achar(r.handle, &idx)) {
             r.doProxy = c->pid == GetCurrentProcessId();
             c->ultimo = idx;
-            r.centroX = CentroX(c->tex[idx].Get(), m_primeira[0].bounds);
+            if (g_lerImagem) r.centroX = CentroX(c->tex[idx].Get(), m_primeira[0].bounds);
         }
         m_camadas = 0;
         if (g_nReg < kMaxRegistros) g_reg[g_nReg++] = r;

@@ -699,6 +699,9 @@ int main(int argc, char **argv) {
     // ---- e) jogo a 2/3 dos Hz (como 60 fps em 90 Hz): um gerado a cada 2 reais, nunca mais
     // Presents que os vsyncs. ----
     std::printf("\n== e) jogo a 2/3 dos Hz sem repetir (crédito: 1 gerado a cada 2 reais) ==\n");
+    auto lerImagem = Funcao<void (*)(int)>(hReal, "FakePico_LerImagem");
+    CHECK(lerImagem != nullptr);
+    if (lerImagem) lerImagem(0); // e, f e g só contam quadros
     {
         int quadros = 0, gerados = 0, presents = 0;
         for (int k = 0; k < 80; ++k, ++jogo) {
@@ -789,6 +792,7 @@ int main(int argc, char **argv) {
     }
     EscreveIni(ini, true);
     Sleep(1500);
+    if (lerImagem) lerImagem(1);
 
     // O proxy nunca segurou o sync na hora errada: driver e compositor sempre o acharam livre.
     CHECK(fake.syncFalhou() == 0);
