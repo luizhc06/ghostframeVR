@@ -155,62 +155,105 @@
 
   <!-- VRCHAT -->
   <section id="aba-vrchat" class="aba">
+    <div class="painel">
+      <header>
+        <h2>Modo VRChat leve</h2><span class="tag alerta" id="vrc-aberto" hidden>VRChat aberto</span>
+        <button class="btn" id="btn-vrc-restaurar" hidden>Restaurar</button>
+        <button class="btn forte" id="btn-vrc-leve">Aplicar</button>
+      </header>
+      <p class="nota topo">De uma vez: perfil Desempenho do ghostframe, bloqueio de Poor e Very Poor, até 15 avatares, partículas limitadas, espelho Quarter, sombras e detalhe Low, sem anti-aliasing. Restaurar volta as opções do jogo como eram.</p>
+    </div>
+
     <div class="duas">
       <div class="painel">
-        <header><h2>Inicialização</h2></header>
-        <p class="nota topo">Cole em Steam → VRChat → Propriedades → Opções de inicialização.</p>
+        <header><h2>No jogo</h2><span class="tag" id="vrc-jogo-tag"></span></header>
         <div class="ajuste primeiro">
-          <div><h3>Prioridade do processo</h3><p>Passa na frente de outros programas na CPU. A doc avisa: Alta pode travar o PC</p></div>
-          <div class="seg mini" data-chave="vrchat.prioridade">
-            <button data-valor="0">Normal</button>
-            <button data-valor="1">Acima</button>
-            <button data-valor="2">Alta</button>
+          <div><h3>Bloquear avatares</h3><p>O VRChat sugere bloquear Poor e Very Poor (rank mínimo Medium)</p></div>
+          <div class="seg mini" id="vrc-rank">
+            <button data-valor="5">Nenhum</button>
+            <button data-valor="4">Very Poor</button>
+            <button data-valor="3">Poor e Very Poor</button>
           </div>
         </div>
-        <div class="ajuste">
-          <div><h3>Thread principal</h3><p>A thread do jogo na frente das outras dele</p></div>
-          <div class="seg mini" data-chave="vrchat.thread">
-            <button data-valor="0">Normal</button>
-            <button data-valor="1">Acima</button>
-          </div>
+        <div class="ajuste coluna">
+          <label class="linha">
+            <div><h3>Limitar avatares visíveis <output id="vrc-max-valor"></output></h3><p>Mostra só os mais perto. Avatar escondido ainda roda animator na CPU</p></div>
+            <span class="sw"><input type="checkbox" id="vrc-max-ligado"><i></i></span>
+          </label>
+          <input type="range" id="vrc-max" min="1" max="80" aria-label="Avatares visíveis">
         </div>
-        <label class="ajuste" id="vrc-afinidade-linha" hidden>
-          <div><h3>Afinidade (AMD)</h3><p>Só em Ryzen com mais de um CCX e engasgos: prende o jogo na primeira metade das threads</p></div>
-          <span class="sw"><input type="checkbox" data-chave="vrchat.afinidade"><i></i></span>
+        <label class="ajuste">
+          <div><h3>Limitar partículas de avatares</h3><p>Limitador do VRChat (beta, no config.json)</p></div>
+          <span class="sw"><input type="checkbox" id="vrc-particulas"><i></i></span>
         </label>
-        <div class="copiar">
-          <input type="text" id="vrc-args" readonly aria-label="Opções de inicialização do VRChat">
-          <button class="btn" id="btn-vrc-copiar">Copiar</button>
-        </div>
+        <label class="ajuste">
+          <div><h3>Espelho em Quarter</h3><p>Espelho desenha a cena de novo; em 1/4 da resolução pesa menos na GPU</p></div>
+          <span class="sw"><input type="checkbox" data-vrc="espelho" data-sim="2" data-nao="0"><i></i></span>
+        </label>
+        <label class="ajuste">
+          <div><h3>Sombras Low</h3><p>GPU</p></div>
+          <span class="sw"><input type="checkbox" data-vrc="sombras" data-sim="0" data-nao="2"><i></i></span>
+        </label>
+        <label class="ajuste">
+          <div><h3>Detalhe (LOD) Low</h3><p>Menos polígonos de longe</p></div>
+          <span class="sw"><input type="checkbox" data-vrc="lod" data-sim="0" data-nao="1"><i></i></span>
+        </label>
+        <label class="ajuste">
+          <div><h3>Sem anti-aliasing</h3><p>GPU</p></div>
+          <span class="sw"><input type="checkbox" data-vrc="aa" data-sim="1" data-nao="4"><i></i></span>
+        </label>
+        <p class="erro-linha" id="vrc-erro"></p>
+        <p class="nota">Grava com o VRChat fechado: aberto, ele regrava as opções dele ao sair.</p>
       </div>
 
       <div class="coluna-paineis">
         <div class="painel">
-          <header><h2>Partículas</h2><span class="tag" id="vrc-part-tag"></span></header>
-          <label class="ajuste primeiro">
-            <div><h3>Limitar partículas de avatares</h3><p>Limitador do VRChat (beta, no config.json). Vale ao abrir o VRChat</p></div>
-            <span class="sw"><input type="checkbox" id="vrc-particulas"><i></i></span>
-          </label>
-          <p class="erro-linha" id="vrc-erro"></p>
-        </div>
-        <div class="painel">
-          <header><h2>Windows</h2></header>
+          <header><h2>Inicialização</h2></header>
+          <p class="nota topo">Cole em Steam → VRChat → Propriedades → Opções de inicialização.</p>
           <div class="ajuste primeiro">
-            <div><h3>Agendamento de GPU por hardware <span class="tag" id="vrc-hags"></span></h3><p>Em Configurações → Tela → Gráficos. Muda depois de reiniciar</p></div>
-            <button class="btn" id="btn-graficos">Abrir</button>
+            <div><h3>Prioridade do processo</h3><p>Passa na frente de outros programas na CPU. A doc avisa: Alta pode travar o PC</p></div>
+            <div class="seg mini" data-chave="vrchat.prioridade">
+              <button data-valor="0">Normal</button>
+              <button data-valor="1">Acima</button>
+              <button data-valor="2">Alta</button>
+            </div>
+          </div>
+          <div class="ajuste">
+            <div><h3>Thread principal</h3><p>A thread do jogo na frente das outras dele</p></div>
+            <div class="seg mini" data-chave="vrchat.thread">
+              <button data-valor="0">Normal</button>
+              <button data-valor="1">Acima</button>
+            </div>
+          </div>
+          <label class="ajuste" id="vrc-afinidade-linha" hidden>
+            <div><h3>Afinidade (AMD)</h3><p>Só em Ryzen com mais de um CCX e engasgos: prende o jogo na primeira metade das threads</p></div>
+            <span class="sw"><input type="checkbox" data-chave="vrchat.afinidade"><i></i></span>
+          </label>
+          <div class="copiar">
+            <input type="text" id="vrc-args" readonly aria-label="Opções de inicialização do VRChat">
+            <button class="btn" id="btn-vrc-copiar">Copiar</button>
           </div>
         </div>
-      </div>
-    </div>
 
-    <div class="painel">
-      <header><h2>No jogo</h2></header>
-      <ul class="dicas">
-        <li><b>Segurança → Performance Options → Minimum Displayed Performance Rank:</b> em Poor, os Very Poor são bloqueados (em Medium, os Poor também). Bloqueado vira fallback ou perde PhysBones, luzes e partículas.</li>
-        <li><b>Maximum Shown Avatars</b> em 10 a 15 ajuda pouco na CPU: segundo o VRChat, avatar escondido ainda roda animator.</li>
-        <li><b>Espelho</b> só quando for usar: ele desenha a cena de novo.</li>
-        <li><b>Perfil Desempenho</b> do ghostframe: o jogo monta metade dos quadros e a GPU gera o resto.</li>
-      </ul>
+        <div class="painel">
+          <header><h2>Windows e SteamVR</h2></header>
+          <div class="ajuste primeiro">
+            <div><h3>Plano de energia <span class="tag" id="vrc-energia"></span></h3><p>O VRChat pede um plano para uso pesado</p></div>
+            <div class="seg mini" id="vrc-plano">
+              <button data-alto="0">Equilibrado</button>
+              <button data-alto="1">Alto</button>
+            </div>
+          </div>
+          <div class="ajuste">
+            <div><h3>Agendamento de GPU por hardware <span class="tag" id="vrc-hags"></span></h3><p>O VRChat recomenda desligar e reiniciar o PC</p></div>
+            <button class="btn" id="btn-graficos">Abrir</button>
+          </div>
+          <label class="ajuste">
+            <div><h3>SteamVR Home</h3><p>O VRChat cita ganho ao desligar</p></div>
+            <span class="sw"><input type="checkbox" id="vr-home"><i></i></span>
+          </label>
+        </div>
+      </div>
     </div>
   </section>
 

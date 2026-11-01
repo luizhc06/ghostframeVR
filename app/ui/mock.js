@@ -5,6 +5,10 @@ if (!window.__TAURI__) {
   const modo = new URLSearchParams(location.search).get("estado") || "instalado";
   const t0 = Date.now() / 1000;
   let vrcLimitador = false;
+  // Valores de um VRChat recém-instalado (registro real).
+  const vrcPadrao = { rank: 5, maxLigado: 0, maxAvatares: 80, espelho: 0, sombras: 2, lod: 1, aa: 4 };
+  let vrcAjustes = { ...vrcPadrao }, vrcBackup = false, energiaAlto = false;
+  const vrcAberto = /vrcaberto/.test(location.search);
   const cfg = {
     "framegen.ativo": "1", "framegen.modo": "auto", "framegen.multiplicador": "2",
     
@@ -13,7 +17,7 @@ if (!window.__TAURI__) {
     "app.autostart": "0", "hud.olhar": "1", "app.alvo": "", "app.jogo_fixo": "",
     "vrchat.prioridade": "1", "vrchat.thread": "0", "vrchat.afinidade": "0",
   };
-  const vrCfg = { supersample: 1.0, supersampleManual: false, motionSmoothing: false, trava: 0 };
+  const vrCfg = { supersample: 1.0, supersampleManual: false, motionSmoothing: false, trava: 0, home: true };
   const aberto = modo !== "offline";
   const conectado = aberto && modo !== "sem-alvo";
   const raiz = "C:\\Program Files\\PICO Connect\\resources\\driver\\pico";
@@ -86,6 +90,12 @@ if (!window.__TAURI__) {
         if (cmd === "hud_previa") return hudPrevia();
         if (cmd === "vrchat_particulas") { vrcLimitador = a.ligar; return `Limitador de partículas ${a.ligar ? "ligado" : "desligado"}.`; }
         if (cmd === "abrir_graficos_windows") return;
+        if (cmd === "vrchat_ajustar") {
+          if (vrcAberto) throw "feche o VRChat antes: ele regrava essas opções quando fecha";
+          Object.assign(vrcAjustes, a.valores); vrcBackup = true; return "VRChat ajustado: vale quando ele abrir.";
+        }
+        if (cmd === "vrchat_restaurar") { vrcAjustes = { ...vrcPadrao }; vrcBackup = false; return "Opções do VRChat de volta como eram."; }
+        if (cmd === "plano_energia_usar") { energiaAlto = a.alto; return `Plano de energia: ${a.alto ? "Alto desempenho" : "Equilibrado"}.`; }
         if (cmd === "instalar") return "proxy instalado. Backup em C:\\Users\\voce\\AppData\\Local\\ghostframeVR\\backup\\win64-1793476800";
         if (cmd === "desinstalar") throw "feche o SteamVR antes: a DLL do driver fica travada enquanto ele roda";
         if (cmd === "relatorio") return "C:\\Users\\voce\\AppData\\Local\\ghostframeVR\\relatorio-1793476800";
@@ -101,7 +111,8 @@ if (!window.__TAURI__) {
         return {
           framegenDisponivel: on, alvoAuto: !cfg["app.alvo"], versao: "0.2.0-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
           processos: { steamvr: aberto },
-          vrchat: { aberto: false, ...(/vrcerro/.test(location.search)
+          vrchat: { aberto: vrcAberto, jogo: { rodou: true, contas: 1, ajustes: { ...vrcAjustes }, temBackup: vrcBackup },
+            energia: { alto: energiaAlto, nome: energiaAlto ? "Alto desempenho" : "Equilibrado" }, ...(/vrcerro/.test(location.search)
             ? { limitador: null, erroConfig: "o config.json do VRChat é um JSON inválido (linha 3): não mexi nele" }
             : { limitador: vrcLimitador, erroConfig: null }), amd: /amd/.test(location.search), threads: 24, hags: true },
           drivers: modo === "sem-alvo" ? [] : (cfg["app.alvo"] && !/PICO Connect\\resources/.test(cfg["app.alvo"]) ? [{ nome: "pico", rotulo: "Pico Connect", suporte: "alvo", embutido: false, raiz: cfg["app.alvo"], dll: "" }] : []).concat([

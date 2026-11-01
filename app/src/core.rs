@@ -92,7 +92,8 @@ pub fn vrc_com_limitador(texto: &str, ligar: bool) -> Result<String, String> {
 pub fn cpu_amd() -> bool {
     #[cfg(target_arch = "x86_64")]
     {
-        // SAFETY: CPUID existe em todo x86_64.
+        // CPUID existe em todo x86_64; o `unsafe` só é exigido em Rust antigo.
+        #[allow(unused_unsafe)]
         let r = unsafe { std::arch::x86_64::__cpuid(0) };
         let mut v = [0u8; 12];
         v[..4].copy_from_slice(&r.ebx.to_le_bytes());
@@ -698,6 +699,7 @@ pub fn ler_steamvr(v: &Value, jogo: &str) -> Value {
     json!({
         "trava": v.get(jogo).and_then(|a| a.get("framesToThrottle")).and_then(Value::as_i64).unwrap_or(0),
         "motionSmoothing": v.pointer("/steamvr/motionSmoothing"),
+        "home": v.pointer("/steamvr/enableHomeApp"),
         "supersample": v.pointer("/steamvr/supersampleScale"),
         "supersampleManual": v.pointer("/steamvr/supersampleManualOverride"),
     })
