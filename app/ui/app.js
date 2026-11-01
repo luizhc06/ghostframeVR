@@ -121,10 +121,6 @@ $$(".seg[data-chave] button").forEach((b) =>
   (b.onclick = () => salvar({ [b.parentElement.dataset.chave]: b.dataset.valor })));
 $$("[data-item]").forEach((el) => (el.onchange = () =>
   salvar({ "hud.itens": $$("[data-item]:checked").map((x) => x.dataset.item).join(",") })));
-// Desligado / Auto / Manual = framegen.ativo + framegen.modo
-$$("#fg-modo button").forEach((b) => (b.onclick = () => salvar(b.dataset.valor === "off"
-  ? { "framegen.ativo": "0" }
-  : { "framegen.ativo": "1", "framegen.modo": b.dataset.valor })));
 
 let framegenDisponivel = null; // null até o primeiro estado: força aplicar o estado inicial
 const modoFrameGen = () => (config["framegen.ativo"] === "1" ? config["framegen.modo"] : "off");
@@ -138,7 +134,8 @@ function preencherConfig() {
   const itens = (config["hud.itens"] || "").split(",");
   $$("[data-item]").forEach((el) => (el.checked = itens.includes(el.dataset.item)));
   const modo = modoFrameGen();
-  $$("#fg-modo button").forEach((b) => b.classList.toggle("ativo", b.dataset.valor === modo));
+  // Desligado, o modo continua salvo: religar volta para o último Auto/Manual.
+  $("#fg-modo").hidden = $("#fg-vivo").hidden = modo === "off" || !framegenDisponivel;
   // Sem frame gen na DLL: a recomendação continua visível, mas não dá para ligar.
   $("#fg-auto").hidden = modo !== "auto" && framegenDisponivel;
   $("#fg-manual").hidden = modo !== "manual" || !framegenDisponivel;
@@ -297,7 +294,7 @@ function render(e) {
   texto($("#versao"), "v" + e.versao);
   if (framegenDisponivel !== !!e.framegenDisponivel) {
     framegenDisponivel = !!e.framegenDisponivel;
-    $$("#fg-modo button, #fg-manual button").forEach((b) => (b.disabled = !framegenDisponivel));
+    $("#fg-ativo").disabled = !framegenDisponivel;
     preencherConfig();
   }
   // Frame gen depende do proxy instalado ser uma versão que gera frames.
@@ -375,7 +372,6 @@ function render(e) {
   texto($("#fg-rec"), a ? a.recomendado + "×" : "--");
   texto($("#fg-motivo"), framegenDisponivel ? a?.motivo || "" : ""); // sem frame gen o aviso já explica
   const fgv = vivo?.framegen;
-  $("#fg-vivo").hidden = !(framegenDisponivel && config["framegen.ativo"] === "1");
   // Ao vivo (o proxy atualiza a cada segundo).
   texto($("#fg-estado"), semFrames ? "sem frames" : !fgv ? "esperando" : { pronto: "gerando", esperando: "aquecendo", falhou: "falhou", desligado: "esperando" }[fgv.estado] || fgv.estado);
   texto($("#fg-reais"), fgv?.reais != null ? fmt(fgv.reais) : "--");

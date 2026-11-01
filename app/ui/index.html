@@ -74,13 +74,23 @@
   <section id="aba-desempenho" class="aba">
     <div class="duas">
       <div class="painel">
-        <header><h2>Frame gen</h2><span class="tag" id="fg-tag"></span></header>
+        <header>
+          <h2 id="fg-titulo">Frame gen</h2><span class="tag" id="fg-tag"></span>
+          <span class="sw grande"><input type="checkbox" role="switch" id="fg-ativo" data-chave="framegen.ativo" aria-labelledby="fg-titulo"><i></i></span>
+        </header>
         <p class="nota topo">A GPU gera frames extras e alivia a CPU, gargalo em jogos como VRChat.</p>
         <p class="aviso-fg" id="fg-aviso" hidden></p>
-        <div class="seg" id="fg-modo">
-          <button data-valor="off">Desligado</button>
+        <div class="seg mini" id="fg-modo" data-chave="framegen.modo" hidden>
           <button data-valor="auto">Auto</button>
           <button data-valor="manual">Manual</button>
+        </div>
+
+        <div id="fg-manual" class="bloco" hidden>
+          <h3>Multiplicador</h3>
+          <div class="seg" data-chave="framegen.multiplicador">
+            <button data-valor="2">2×</button>
+            <button data-valor="3">3×</button>
+          </div>
         </div>
 
         <div id="fg-vivo" class="bloco" hidden>
@@ -99,15 +109,6 @@
           </div>
           <p class="nota" id="fg-motivo"></p>
         </div>
-
-        <div id="fg-manual" class="bloco" hidden>
-          <h3>Multiplicador</h3>
-          <div class="seg" data-chave="framegen.multiplicador">
-            <button data-valor="2">2×</button>
-            <button data-valor="3">3×</button>
-          </div>
-        </div>
-
       </div>
 
       <div class="painel">
