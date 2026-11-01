@@ -4,6 +4,9 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+### Corrigido
+- **O frame gen não gerava nada no Pico Connect em jogo de verdade.** O log real mostrou por quê: com o Pico, o SteamVR só chama o driver quando o jogo tem quadro novo (presents/s = quadros do jogo/s, nenhum repetido) e a trava por jogo não chega. Agora o proxy tem relógio próprio, como o Lossless Scaling: sabe os Hz do headset, mede o ritmo do jogo e, abaixo dos Hz, entrega o quadro gerado no vsync que ficaria vazio (1 gerado a 60 ou 45 fps em 90 Hz, 2 a 30 fps). Custo medido na RTX 3060 do teste real: 1,3 ms por quadro gerado em 2416x2416.
+
 ## [0.2.13-alpha] - 2026-11-01
 
 ### Corrigido

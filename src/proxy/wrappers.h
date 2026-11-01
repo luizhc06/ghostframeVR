@@ -120,6 +120,12 @@ private:
     double m_tUltimoReal = 0, m_intervaloJogo = 0, m_tUltimoPresent = 0, m_intervaloPresent = 0;
     double m_tPresent = 0;       // último Present do compositor, ligado ou não (base da trava)
     uint32_t m_divisor = 2;      // frames por frame real esperados (trava + 1); alfa = k / divisor
+    // Relógio próprio: o SteamVR só chama Present quando o jogo tem quadro novo (sem repetir,
+    // sem trava, caso do Pico Connect). Abaixo dos Hz do headset, o proxy entrega os gerados
+    // nos vsyncs vazios. `m_alfaPasso` = alfa de cada gerado (1/divisor com trava ou repetição;
+    // período do vsync / intervalo do jogo no relógio próprio).
+    double m_alfaPasso = 0.5;
+    uint32_t m_extrasRelogio = 0;
     Conjunto m_saida[2] = {};
     bool m_temSaida = false, m_saidaUnica = false, m_saidaNt = false;
     uint32_t m_idxSaida = 0;

@@ -173,6 +173,8 @@ int main(int argc, char **argv) {
     }
     CHECK(iguais);
     CHECK(c8[2] == 40 && c8[3] == 40 && c8[4] == 40); // SubmitLayer, Present, PostPresent
+    dm8->PostPresent(nullptr); // o SteamVR pode mandar sem Throttling_t: repassa, sem cair
+    CHECK(c8[4] == 41);
     // Trava declarada pelo proxy (frame gen ligado): o driver nunca recebe trava > 0, quem segura
     // os vsyncs é o proxy. Desligado, a trava vai como veio.
     const bool fgLigado = std::getenv("GF_INI") != nullptr;

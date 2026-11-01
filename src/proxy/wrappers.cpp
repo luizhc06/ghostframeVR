@@ -363,14 +363,15 @@ void DirectModeWrapper::LiberarSaida() {
 // para ele já estar pronto quando chegar a vez dele: o Present nunca espera a GPU.
 bool DirectModeWrapper::GerarAdiante(uint32_t k) {
     if (m_desistiu || !MotorOk() || !m_fg.Pronto() || m_nUltimas == 0) return false;
-    if (k >= m_divisor) return false; // nunca além de um intervalo do jogo
+    const double alfa = k * m_alfaPasso;
+    if (alfa >= 0.999) return false; // nunca além de um intervalo do jogo
     if (!GarantirSaida(m_ultimas[0])) return false;
     // O índice que o driver pediu; sem ele, nunca a textura entregue por último.
     uint32_t idx = m_proximoIdx >= 0 && m_proximoIdx < 3 ? uint32_t(m_proximoIdx) : (m_idxSaida + 1) % 3;
     if (idx == m_idxSaida) idx = (idx + 1) % 3;
     vr::SharedTextureHandle_t saida[2] = {m_saida[0].h[idx], (m_saidaUnica ? m_saida[0] : m_saida[1]).h[idx]};
     vr::VRTextureBounds_t bounds[2] = {m_ultimas[0][0].bounds, m_ultimas[0][1].bounds};
-    if (!m_fg.Gerar(float(k) / float(m_divisor), saida, bounds, m_saidaNt)) {
+    if (!m_fg.Gerar(float(alfa), saida, bounds, m_saidaNt)) {
         Falhou("Gerar");
         return false;
     }
@@ -490,6 +491,17 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
             double r = m_intervaloJogo / m_intervaloPresent;
             m_divisor = r < 2.5 ? 2 : 3;
         }
+        m_alfaPasso = 1.0 / m_divisor;
+        // Relógio próprio: sem trava e sem repetição (Present no ritmo do jogo), com o jogo
+        // claramente abaixo dos Hz do headset. 1 gerado a 60 ou 45 fps em 90 Hz, 2 a 30 fps;
+        // o último vem pelo menos meio vsync antes do próximo quadro real esperado.
+        const double per = Periodo();
+        m_extrasRelogio = 0;
+        if (g_estatFG.trava.load() == 0 && m_intervaloJogo > 1.3 * per && m_intervaloPresent > 0.8 * m_intervaloJogo) {
+            const double n = (m_intervaloJogo - 0.5 * per) / per;
+            m_extrasRelogio = n >= 2 ? 2 : n >= 1 ? 1 : 0;
+            if (m_extrasRelogio) m_alfaPasso = per / m_intervaloJogo;
+        }
         if (Motor()) {
             for (int olho = 0; olho < 2; ++olho) {
                 ProjecaoOlho p = Projecao(olho);
@@ -529,21 +541,24 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     const bool novo = m_ultimoFoiNovo;
     m_ultimoFoiNovo = false;
     const bool nossa = g_travaDoProxy.load(std::memory_order_relaxed);
-    if (trava == 0 || (!nossa && (!novo || m_desistiu))) {
+    // Sem trava: só o relógio próprio entrega algo aqui (gerado pronto depois de um quadro novo).
+    const bool relogio = trava == 0 && novo && !m_desistiu && m_extrasRelogio > 0 && m_pendente && m_nUltimas;
+    if ((trava == 0 && !relogio) || (trava > 0 && !nossa && (!novo || m_desistiu))) {
         m_real->PostPresent(t);
         return;
     }
     // Trava do SteamVR (jogo a 1/(N+1) da taxa): em vez de o driver esperar N vsyncs de
     // uma vez, espera um por vez e entrega um frame em cada um. O protocolo fica sempre
     // Present -> PostPresent: se o gerado não estiver pronto, vai o real de novo.
-    const Throttling_t um{0, t->nAdditionalFramesToPredict};
+    const Throttling_t um{0, t ? t->nAdditionalFramesToPredict : 0}; // no relógio próprio `t` pode ser nulo
     const double periodo = Periodo(), t0 = m_tPresent;
     // Trava nossa sem frame para entregar: segura os N+1 vsyncs como o ALVR (o driver não
     // segura e o jogo está sendo previsto N quadros à frente).
-    auto segurar = [&] { DormirAte(t0 + (trava + 1) * periodo - 0.001); };
-    const uint32_t extras = trava < 3 ? trava : 3;
-    if (novo && !m_desistiu && m_divisor != extras + 1) {
+    auto segurar = [&] { if (trava) DormirAte(t0 + (trava + 1) * periodo - 0.001); }; // relógio: nada a segurar
+    const uint32_t extras = relogio ? m_extrasRelogio : trava < 3 ? trava : 3;
+    if (!relogio && novo && !m_desistiu && m_divisor != extras + 1) {
         m_divisor = extras + 1;
+        m_alfaPasso = 1.0 / m_divisor;
         if (m_pendente && m_divisorPendente != m_divisor) {
             m_pendente = false;
             GerarAdiante(1); // dá tempo: a GPU tem um vsync inteiro

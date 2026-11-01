@@ -299,11 +299,36 @@ public:
     void SetRecommendedRenderTargetSize(uint32_t, uint32_t, uint32_t) override {}
 } g_host;
 
+// Propriedades: como o Pico, o headset informa os Hz (o proxy usa no relógio próprio). Um vsync
+// do teste dura kVsync, então o "headset" roda a 1/kVsync Hz.
+class Props : public vr::IVRProperties {
+public:
+    vr::ETrackedPropertyError ReadPropertyBatch(vr::PropertyContainerHandle_t c, vr::PropertyRead_t *b, uint32_t n) override {
+        for (uint32_t i = 0; i < n; ++i) {
+            b[i].eError = vr::TrackedProp_UnknownProperty;
+            if (c == 77 && b[i].prop == vr::Prop_DisplayFrequency_Float && b[i].unBufferSize >= sizeof(float)) {
+                *static_cast<float *>(b[i].pvBuffer) = float(1.0 / kVsync);
+                b[i].unRequiredBufferSize = sizeof(float);
+                b[i].unTag = vr::k_unFloatPropertyTag;
+                b[i].eError = vr::TrackedProp_Success;
+            }
+        }
+        return vr::TrackedProp_Success;
+    }
+    vr::ETrackedPropertyError WritePropertyBatch(vr::PropertyContainerHandle_t, vr::PropertyWrite_t *b, uint32_t n) override {
+        for (uint32_t i = 0; i < n; ++i) b[i].eError = vr::TrackedProp_Success;
+        return vr::TrackedProp_Success;
+    }
+    const char *GetPropErrorNameFromEnum(vr::ETrackedPropertyError) override { return ""; }
+    vr::PropertyContainerHandle_t TrackedDeviceToPropertyContainer(vr::TrackedDeviceIndex_t d) override { return d == 0 ? 77 : 0; }
+} g_props;
+
 class Ctx : public vr::IVRDriverContext {
 public:
     void *GetGenericInterface(const char *v, vr::EVRInitError *e) override {
         if (e) *e = vr::VRInitError_None;
         if (!std::strcmp(v, vr::IVRServerDriverHost_Version)) return &g_host;
+        if (!std::strcmp(v, vr::IVRProperties_Version)) return &g_props;
         if (e) *e = vr::VRInitError_Init_InterfaceNotFound;
         return nullptr;
     }
@@ -635,6 +660,35 @@ int main(int argc, char **argv) {
         CHECK(reaisIntactos == quadros);
         CHECK(gerados * 10 >= quadros * 8);
         d.Confere("c");
+    }
+
+    // ---- d) como o Pico Connect: sem trava e sem repetir quadro. O compositor só chama Present
+    // quando o jogo tem quadro novo (a metade dos Hz do headset); o proxy gera no vsync vazio. ----
+    std::printf("\n== d) jogo a meia taxa sem repetir quadro e sem trava (relógio próprio) ==\n");
+    {
+        int quadros = 0, comDois = 0, reaisIntactos = 0, gerados = 0;
+        Desloc d;
+        for (int k = 0; k < 70; ++k, ++jogo) {
+            const double tv = gf::NowSeconds();
+            const int de = fake.presents();
+            const vr::SharedTextureHandle_t h = Vsync(c, jogo, 0);
+            const std::vector<Reg> r = Registros(fake, de);
+            if (k >= 10) { // o proxy mede o ritmo do jogo pelos Presents
+                quadros++;
+                comDois += r.size() == 2;
+                reaisIntactos += !r.empty() && Intacto(r[0], h, jogo);
+                if (r.size() == 2 && r[1].doProxy) {
+                    gerados++;
+                    d.Anota(r[1], jogo);
+                }
+            }
+            gf::DormirAte(tv + 2 * kVsync); // o jogo entrega um quadro a cada 2 vsyncs
+        }
+        std::printf("d) %d quadros do jogo: %d com 2 Presents no driver, %d reais intactos, %d gerados no vsync vazio (%.0f%%)\n",
+                    quadros, comDois, reaisIntactos, gerados, 100.0 * gerados / quadros);
+        CHECK(reaisIntactos == quadros);
+        CHECK(gerados * 10 >= quadros * 8);
+        d.Confere("d");
     }
 
     // O proxy nunca segurou o sync na hora errada: driver e compositor sempre o acharam livre.
