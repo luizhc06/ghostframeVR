@@ -97,7 +97,7 @@ if (!window.__TAURI__) {
         if (cmd === "vrchat_restaurar") { vrcAjustes = { ...vrcPadrao }; vrcBackup = false; return "Opções do VRChat de volta como eram."; }
         if (cmd === "autoteste") {
           await new Promise((r) => setTimeout(r, 1500));
-          return { passou: true, skip: null, gpu: "NVIDIA GeForce RTX 3060", resumo: [], falhas: [], gpuMsMedia: 1.4, gpuMsMax: 2.1, pctRepetidos: 98, pctTrava: 97, pctRelogio: 97, codigo: 0, segundos: 10.4 };
+          return { passou: true, skip: null, gpu: "NVIDIA GeForce RTX 3060", resumo: [], falhas: [], gpuMsMedia: 1.4, gpuMsMax: 2.1, pctRepetidos: 98, pctTrava: 97, pctRelogio: 97, pctManual: 98, codigo: 0, segundos: 10.4 };
         }
         if (cmd === "vrchat_opcoes_steam") {
           if (/steamaberta/.test(location.search)) throw "feche a Steam antes: aberta, ela regrava as opções de inicialização ao sair";

@@ -119,7 +119,7 @@ pub fn ler_autoteste(saida: &str, codigo: Option<i32>) -> Value {
         .iter()
         .find_map(|l| depois(l, "FrameGen: iniciado (hardware, ").and_then(|r| r.rsplit_once(", feature").map(|(g, _)| g.to_string())))
         .or_else(|| linhas.iter().find_map(|l| l.strip_prefix("adaptador padrão: ").map(|r| r.split(" (vendor").next().unwrap_or(r).to_string())));
-    let resumo: Vec<&str> = linhas.iter().copied().filter(|l| ["a) ", "b) ", "c) ", "d) "].iter().any(|p| l.starts_with(p))).collect();
+    let resumo: Vec<&str> = linhas.iter().copied().filter(|l| ["a) ", "b) ", "c) ", "d) ", "e) ", "f) ", "g) "].iter().any(|p| l.starts_with(p))).collect();
     let falhas: Vec<&str> = linhas.iter().copied().filter(|l| l.starts_with("FALHOU:")).collect();
     let ms: Vec<f64> = linhas
         .iter()
@@ -145,6 +145,8 @@ pub fn ler_autoteste(saida: &str, codigo: Option<i32>) -> Value {
         "pctTrava": pct(" reais intactos, "),
         // d): jogo abaixo dos Hz sem repetir e sem trava (o caso do Pico Connect).
         "pctRelogio": pct("gerados no vsync vazio"),
+        // g): manual 2x, o proxy trava o jogo na metade e gera no vsync do meio.
+        "pctManual": linhas.iter().filter(|l| l.starts_with("g) ")).find_map(|l| depois(l, " com 2 Presents, ")?.split('(').nth(1)?.split('%').next()?.trim().parse::<f64>().ok()),
     })
 }
 
@@ -855,6 +857,8 @@ mod testes {
         assert!(r["pctRelogio"].is_null()); // e de antes do cenário d
         let d = ler_autoteste("d) 60 quadros do jogo: 60 com 2 Presents no driver, 60 reais intactos, 58 gerados no vsync vazio (97%)\n", Some(0));
         assert_eq!(d["pctRelogio"], 97.0);
+        let g = ler_autoteste("g) 50 quadros do jogo: 50 com 2 Presents, 49 gerados (98%); cada quadro real levou em média 59.7 ms (2 vsyncs = 60 ms)\n", Some(0));
+        assert_eq!(g["pctManual"], 98.0);
         let d = ler_autoteste("sonda: escrita+espera=ok; relida=ok; conteúdo na criação=4096 de 16384 bytes diferentes; keyed mutex=ok\n", Some(0));
         assert_eq!(d["sonda"], "escrita+espera=ok; relida=ok; conteúdo na criação=4096 de 16384 bytes diferentes; keyed mutex=ok");
         let s = ler_autoteste("SKIP: sem adaptador de hardware que compartilhe texturas\n", Some(77));
