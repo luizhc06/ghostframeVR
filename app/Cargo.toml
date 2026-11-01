@@ -1,6 +1,6 @@
 [package]
 name = "ghostframevr"
-version = "0.2.9-alpha"
+version = "0.2.10-alpha"
 edition = "2021"
 publish = false
 

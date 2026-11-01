@@ -4,6 +4,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.10-alpha] - 2026-11-01
+
 ### Adicionado
 - Aba VRChat: "Usar impostor" (avatar bloqueado por malha, skinned meshes, materiais ou ossos aparece na versão leve que o VRChat gera) e "Esconder avatares longe" (Hide Avatar Beyond, 5 a 50 m). Explicação do que o rank mínimo faz: malha pesada vira impostor; PhysBones, luzes e partículas pesadas só são removidos. O Modo leve liga o impostor.
 
