@@ -31,11 +31,32 @@ public:
     void SetRecommendedRenderTargetSize(uint32_t, uint32_t, uint32_t) override {}
 } g_host;
 
+// Propriedades: o teste confere se o proxy habilitou a trava por jogo no HMD.
+int g_travaPorJogo = -1; // -1 = ninguém escreveu
+class Props : public vr::IVRProperties {
+public:
+    vr::ETrackedPropertyError ReadPropertyBatch(vr::PropertyContainerHandle_t, vr::PropertyRead_t *b, uint32_t n) override {
+        for (uint32_t i = 0; i < n; ++i) b[i].eError = vr::TrackedProp_UnknownProperty;
+        return vr::TrackedProp_Success;
+    }
+    vr::ETrackedPropertyError WritePropertyBatch(vr::PropertyContainerHandle_t c, vr::PropertyWrite_t *b, uint32_t n) override {
+        for (uint32_t i = 0; i < n; ++i) {
+            b[i].eError = vr::TrackedProp_Success;
+            if (c == 77 && b[i].prop == vr::Prop_Hmd_SupportsAppThrottling_Bool && b[i].writeType == vr::PropertyWrite_Set)
+                g_travaPorJogo = *static_cast<bool *>(b[i].pvBuffer) ? 1 : 0;
+        }
+        return vr::TrackedProp_Success;
+    }
+    const char *GetPropErrorNameFromEnum(vr::ETrackedPropertyError) override { return ""; }
+    vr::PropertyContainerHandle_t TrackedDeviceToPropertyContainer(vr::TrackedDeviceIndex_t d) override { return d == 0 ? 77 : 0; }
+} g_props;
+
 class Ctx : public vr::IVRDriverContext {
 public:
     void *GetGenericInterface(const char *v, vr::EVRInitError *e) override {
         if (e) *e = vr::VRInitError_None;
         if (!std::strcmp(v, vr::IVRServerDriverHost_Version)) return &g_host;
+        if (!std::strcmp(v, vr::IVRProperties_Version)) return &g_props;
         if (e) *e = vr::VRInitError_Init_InterfaceNotFound;
         return nullptr;
     }
@@ -63,6 +84,8 @@ int main(int argc, char **argv) {
     CHECK(g_addedHmd != nullptr);
     if (!g_addedHmd) return 1;
     CHECK(g_addedHmd->Activate(0) == vr::VRInitError_None);
+    // Frame gen ligado: o HMD passa a aceitar a trava por jogo; desligado, nada muda.
+    CHECK(g_travaPorJogo == (std::getenv("GF_INI") ? 1 : -1));
 
     auto *vd = (vr::IVRVirtualDisplay *)g_addedHmd->GetComponent(vr::IVRVirtualDisplay_Version);
     auto *dm = (vr::IVRDriverDirectModeComponent *)g_addedHmd->GetComponent(vr::IVRDriverDirectModeComponent_Version);

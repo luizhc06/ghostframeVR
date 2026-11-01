@@ -644,6 +644,10 @@ void Frente008::PostPresent(const Throttling_t *t) {
 
 // ===========================================================================
 // ITrackedDeviceServerDriver
+
+// Propriedades do SteamVR (do contexto real, pedidas pelo próprio proxy no Init).
+static std::atomic<vr::IVRProperties *> g_props{nullptr};
+
 DeviceWrapper::DeviceWrapper(vr::ITrackedDeviceServerDriver *real, const char *serial, vr::ETrackedDeviceClass cls)
     : m_real(real), m_class(cls) {
     GF_LOG("DeviceWrapper criado: serial=%s class=%s", serial ? serial : "(null)", DeviceClassName(cls));
@@ -652,6 +656,18 @@ DeviceWrapper::DeviceWrapper(vr::ITrackedDeviceServerDriver *real, const char *s
 vr::EVRInitError DeviceWrapper::Activate(uint32_t id) {
     vr::EVRInitError r = m_real->Activate(id);
     GF_LOG("Device(%s)::Activate id=%u -> %d", DeviceClassName(m_class), id, (int)r);
+    // Frame gen ligado: o headset passa a aceitar a trava por jogo do SteamVR (como o Lossless,
+    // o jogo roda numa fração e o proxy gera o resto). Sem esta propriedade o SteamVR nunca
+    // manda nFramesToThrottle ao PostPresent; quem segura o vsync é o proxy.
+    vr::IVRProperties *props = g_props.load();
+    if (r == vr::VRInitError_None && m_class == vr::TrackedDeviceClass_HMD && props && g_opcoes.framegen.load()) {
+        vr::CVRPropertyHelpers h(props);
+        const vr::PropertyContainerHandle_t c = props->TrackedDeviceToPropertyContainer(id);
+        const bool antes = h.GetBoolProperty(c, vr::Prop_Hmd_SupportsAppThrottling_Bool);
+        const vr::ETrackedPropertyError e = h.SetBoolProperty(c, vr::Prop_Hmd_SupportsAppThrottling_Bool, true);
+        GF_LOG("FRAMEGEN trava por jogo habilitada no headset (SupportsAppThrottling %s -> 1, erro=%d)",
+               antes ? "1" : "0", (int)e);
+    }
     return r;
 }
 
@@ -855,6 +871,8 @@ vr::DriverHandle_t DriverContextWrapper::GetDriverHandle() { return m_real->GetD
 // IServerTrackedDeviceProvider
 vr::EVRInitError ProviderWrapper::Init(vr::IVRDriverContext *ctx) {
     IniciarFundo(); // relê o ghostframe.ini e loga as estatísticas do frame gen
+    vr::EVRInitError ep = vr::VRInitError_None;
+    g_props = ctx ? static_cast<vr::IVRProperties *>(ctx->GetGenericInterface(vr::IVRProperties_Version, &ep)) : nullptr;
     m_context = std::make_unique<DriverContextWrapper>(ctx);
     vr::EVRInitError r = m_real->Init(m_context.get());
     GF_LOG("Provider::Init -> %d", (int)r);

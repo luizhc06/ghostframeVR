@@ -4,6 +4,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+### Corrigido
+- O SteamVR nunca mandava a trava por jogo para o Pico Connect: o driver da Pico não declara suporte a ela (`Prop_Hmd_SupportsAppThrottling_Bool`). Com o frame gen ligado, o proxy declara e passa a segurar o vsync ele mesmo, como o Lossless Scaling faz no monitor: o jogo roda numa fração dos Hz e o proxy gera o resto.
+
+### Adicionado
+- Log e aba Desempenho dizem por que o frame gen não está gerando: quadros por segundo chegando, quantos repetidos e se há trava.
+
 ## [0.2.7-alpha] - 2026-11-01
 
 ### Adicionado
