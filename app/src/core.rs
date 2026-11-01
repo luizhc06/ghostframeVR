@@ -510,6 +510,7 @@ pub fn ler_log(texto: &str) -> Value {
                 "estado": resto.split_whitespace().next().unwrap_or(""),
                 "reais": campo("reais"), "gerados": campo("gerados"), "falhas": campo("falhas"),
                 "trava": campo("trava"), "gpuMs": campo("gpu_ms"),
+                "presents": campo("presents"), "repetidos": campo("repetidos"),
             });
             // Série para o gráfico: [t, gerados/s, trava].
             let serie = stats.entry("FRAMEGEN").or_insert_with(|| json!([]));
