@@ -72,6 +72,15 @@
 
   <!-- DESEMPENHO -->
   <section id="aba-desempenho" class="aba">
+    <div class="painel">
+      <header><h2>Perfil</h2><span class="tag" id="perfil-tag"></span></header>
+      <div class="perfis" id="perfis">
+        <button data-perfil="qualidade"><b>Qualidade</b><small>sem frame gen · resolução auto</small></button>
+        <button data-perfil="equilibrado"><b>Equilibrado</b><small>frame gen Auto · resolução auto</small></button>
+        <button data-perfil="desempenho"><b>Desempenho</b><small>2× · resolução 80%</small></button>
+        <button data-perfil="maximo"><b>Máximo fps</b><small>3× · resolução 70%</small></button>
+      </div>
+    </div>
     <div class="duas">
       <div class="painel">
         <header>
@@ -80,14 +89,16 @@
         </header>
         <p class="nota topo">A GPU gera frames extras e alivia a CPU, gargalo em jogos como VRChat.</p>
         <p class="aviso-fg" id="fg-aviso" hidden></p>
-        <div class="seg mini" id="fg-modo" data-chave="framegen.modo" hidden>
-          <button data-valor="auto">Auto</button>
-          <button data-valor="manual">Manual</button>
+        <div class="ajuste" id="fg-modo-linha" hidden>
+          <div><h3>Modo</h3><p>Auto escolhe 2× ou 3× pelo que o jogo aguenta</p></div>
+          <div class="seg mini" id="fg-modo" data-chave="framegen.modo">
+            <button data-valor="auto">Auto</button>
+            <button data-valor="manual">Manual</button>
+          </div>
         </div>
-
-        <div id="fg-manual" class="bloco" hidden>
-          <h3>Multiplicador</h3>
-          <div class="seg" data-chave="framegen.multiplicador">
+        <div class="ajuste" id="fg-manual" hidden>
+          <div><h3>Multiplicador</h3><p>Quantos frames o headset recebe por frame do jogo</p></div>
+          <div class="seg mini" data-chave="framegen.multiplicador">
             <button data-valor="2">2×</button>
             <button data-valor="3">3×</button>
           </div>
@@ -113,26 +124,29 @@
 
       <div class="painel">
         <header><h2>SteamVR</h2><span class="tag" id="vr-fonte"></span></header>
-        <div class="bloco primeiro">
-          <h3>Jogo</h3>
+        <div class="ajuste primeiro">
+          <div><h3>Jogo</h3><p>Onde a trava de fps vale</p></div>
           <select id="jogo"></select>
         </div>
-        <div class="bloco">
-          <h3 title="Trava o jogo numa fração da taxa do headset">Trava de fps <span class="tag" id="trava-auto">frame gen</span></h3>
-          <div class="seg" id="trava">
+        <div class="ajuste">
+          <div><h3>Trava de fps <span class="tag" id="trava-auto">frame gen</span></h3><p>Prende o jogo numa fração dos Hz do headset</p></div>
+          <div class="seg mini" id="trava">
             <button data-valor="0">Livre</button>
             <button data-valor="1">½<small></small></button>
             <button data-valor="2">⅓<small></small></button>
           </div>
         </div>
-        <div class="bloco">
+        <div class="ajuste coluna">
           <div class="linha">
-            <h3>Resolução <output id="ss-valor"></output></h3>
+            <div><h3>Resolução <output id="ss-valor"></output></h3><p>Menos pixels, mais fps</p></div>
             <label class="linha"><span>Manual</span><span class="sw"><input type="checkbox" id="ss-manual"><i></i></span></label>
           </div>
           <input type="range" id="ss" min="20" max="500" step="5">
         </div>
-        <label class="linha bloco"><span>Motion smoothing</span><span class="sw"><input type="checkbox" id="ms"><i></i></span></label>
+        <label class="ajuste">
+          <div><h3>Motion smoothing</h3><p>Reprojeção do SteamVR. Deixe desligado com frame gen</p></div>
+          <span class="sw"><input type="checkbox" id="ms"><i></i></span>
+        </label>
       </div>
     </div>
   </section>

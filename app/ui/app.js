@@ -135,7 +135,7 @@ function preencherConfig() {
   $$("[data-item]").forEach((el) => (el.checked = itens.includes(el.dataset.item)));
   const modo = modoFrameGen();
   // Desligado, o modo continua salvo: religar volta para o último Auto/Manual.
-  $("#fg-modo").hidden = $("#fg-vivo").hidden = modo === "off" || !framegenDisponivel;
+  $("#fg-modo-linha").hidden = $("#fg-vivo").hidden = modo === "off" || !framegenDisponivel;
   // Sem frame gen na DLL: a recomendação continua visível, mas não dá para ligar.
   $("#fg-auto").hidden = modo !== "auto" && framegenDisponivel;
   $("#fg-manual").hidden = modo !== "manual" || !framegenDisponivel;
@@ -154,6 +154,42 @@ $("#ss").oninput = (ev) => {
   texto($("#ss-valor"), el.value + "%");
   depois(el, () => vrSet("supersample", el.value / 100), 200);
 };
+
+// ---------- perfis: um clique ajusta frame gen + SteamVR ----------
+// Só mexem em ajustes reais; a ordem do vr importa (escala antes de ligar o manual).
+const PERFIS = {
+  qualidade: { cfg: { "framegen.ativo": "0" }, vr: { supersampleManual: false } },
+  equilibrado: { cfg: { "framegen.ativo": "1", "framegen.modo": "auto" }, vr: { supersampleManual: false, motionSmoothing: false } },
+  desempenho: {
+    cfg: { "framegen.ativo": "1", "framegen.modo": "manual", "framegen.multiplicador": "2" },
+    vr: { supersample: 0.8, supersampleManual: true, motionSmoothing: false },
+  },
+  maximo: {
+    cfg: { "framegen.ativo": "1", "framegen.modo": "manual", "framegen.multiplicador": "3" },
+    vr: { supersample: 0.7, supersampleManual: true, motionSmoothing: false },
+  },
+};
+// Valor efetivo no SteamVR (ausente no arquivo = padrão dele).
+const vrValor = (s, k) => k === "motionSmoothing" ? s?.motionSmoothing ?? true
+  : k === "supersampleManual" ? !!s?.supersampleManual : s?.supersample ?? 1;
+const perfilAtual = (s) => Object.keys(PERFIS).find((n) =>
+  Object.entries(PERFIS[n].cfg).every(([k, v]) => config[k] === v) &&
+  (!s || Object.entries(PERFIS[n].vr).every(([k, v]) =>
+    typeof v === "number" ? Math.abs(vrValor(s, k) - v) < 0.011 : vrValor(s, k) === v)));
+$$("#perfis button").forEach((b) => (b.onclick = async () => {
+  const p = PERFIS[b.dataset.perfil];
+  b.classList.add("ocupado");
+  salvar(p.cfg);
+  try {
+    for (const [chave, valor] of Object.entries(p.vr)) await invoke("vr_set", { chave, valor });
+    toast(`Perfil ${b.querySelector("b").textContent} aplicado`);
+  } catch (e) {
+    toast(String(e), true);
+  } finally {
+    b.classList.remove("ocupado");
+    atualizar();
+  }
+}));
 
 // ---------- prévia do HUD: no máximo um pedido em voo, mais um na fila ----------
 let previaOcupada = false, previaDeNovo = false;
@@ -411,6 +447,13 @@ function render(e) {
   texto($("#ss-valor"), (manual ? ss.value + "%" : "auto") + (vr?.render ? ` · ${vr.render.join("×")}` : ""));
   $("#ms").checked = !!s && (s.motionSmoothing ?? true); // ausente no arquivo = padrão do SteamVR (ligado)
   $("#ms").disabled = !pode;
+
+  const atual = perfilAtual(s);
+  texto($("#perfil-tag"), atual ? "" : "personalizado");
+  $$("#perfis button").forEach((b) => {
+    b.classList.toggle("ativo", b.dataset.perfil === atual);
+    b.disabled = !pode || (PERFIS[b.dataset.perfil].cfg["framegen.ativo"] === "1" && !framegenDisponivel);
+  });
 
   // ----- HUD -----
   const erro = e.hud?.erro;
