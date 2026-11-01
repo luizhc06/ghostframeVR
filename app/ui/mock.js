@@ -9,7 +9,7 @@ if (!window.__TAURI__) {
     
     "hud.ativo": "1", "hud.ancora": "pe", "hud.tamanho": "12", "hud.opacidade": "80",
     "hud.x": "0", "hud.y": "4", "hud.z": "0", "hud.itens": "fps,frames,ft,graf",
-    "app.autostart": "0", "hud.olhar": "1", "app.alvo": "", "app.jogo": "steam.app.438100",
+    "app.autostart": "0", "hud.olhar": "1", "app.alvo": "", "app.jogo_fixo": "",
   };
   const vrCfg = { supersample: 1.0, supersampleManual: false, motionSmoothing: false, trava: 0 };
   const aberto = modo !== "offline";
@@ -128,7 +128,7 @@ if (!window.__TAURI__) {
           steamvr: modo === "sem-alvo" ? null : { ...vrCfg },
           jogos: modo === "sem-alvo" ? [] : [{ chave: "steam.app.438100", nome: "VRChat" }, { chave: "steam.app.620980", nome: "Beat Saber" }, { chave: "system.generated.jogo.exe", nome: "jogo.exe" }],
           vr: conectado ? {
-            hz: 90, render: [Math.round(2160 * escala), Math.round(2160 * escala)], modelo: "PICO 4", fabricante: "PICO",
+            hz: 90, render: [Math.round(2160 * escala), Math.round(2160 * escala)], modelo: "PICO 4", fabricante: "PICO", jogo: { chave: "steam.app.438100", nome: "VRChat" },
             timing: modo === "sobrescrito" ? null : {
               fpsJogo: 44 + Math.random() * 1.6, msCpu: 12.1 + Math.random(), msGpu: 9.3 + Math.random() * 0.6,
               msTrabalho: 21.0, reprojetados: Math.floor(Math.random() * 4), perdidos: 0,

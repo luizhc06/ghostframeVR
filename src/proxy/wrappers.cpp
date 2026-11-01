@@ -61,6 +61,7 @@ void VirtualDisplayWrapper::Present(const vr::PresentInfo_t *info, uint32_t size
                 info->flVSyncTimeInSeconds, size);
     }
     m_presentRate.Tick();
+    g_estatFG.presents.fetch_add(1, std::memory_order_relaxed);
     // >>> Ponto de inserção do frame gen (caminho VirtualDisplay) <<<
     m_real->Present(info, size);
 }
@@ -387,6 +388,7 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
         GF_LOG("DirectMode::Present #%llu sync=0x%llx layers=%u", (unsigned long long)n,
                 (unsigned long long)syncTexture, layers);
     m_presentRate.Tick();
+    g_estatFG.presents.fetch_add(1, std::memory_order_relaxed);
 
     bool fg = m_quadroComFG;
     m_quadroComFG = false;
@@ -602,8 +604,9 @@ bool ServerDriverHostWrapper::TrackedDeviceAdded(const char *serial, vr::ETracke
                                                  vr::ITrackedDeviceServerDriver *pDriver) {
     GF_LOG("Host::TrackedDeviceAdded serial=%s class=%s", serial ? serial : "(null)", DeviceClassName(cls));
     vr::ITrackedDeviceServerDriver *toRegister = pDriver;
-    // Só embrulhamos o HMD — é ele que tem os componentes de display.
-    if (pDriver && cls == vr::TrackedDeviceClass_HMD) {
+    // O vídeo sai pelo HMD (DirectMode) ou, em drivers de display virtual, por um
+    // dispositivo DisplayRedirect à parte (IVRVirtualDisplay): embrulhamos os dois.
+    if (pDriver && (cls == vr::TrackedDeviceClass_HMD || cls == vr::TrackedDeviceClass_DisplayRedirect)) {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_devices.push_back(std::make_unique<DeviceWrapper>(pDriver, serial, cls));
         toRegister = m_devices.back().get();
@@ -612,7 +615,10 @@ bool ServerDriverHostWrapper::TrackedDeviceAdded(const char *serial, vr::ETracke
 }
 
 void ServerDriverHostWrapper::TrackedDevicePoseUpdated(uint32_t dev, const vr::DriverPose_t &pose, uint32_t size) {
-    if (dev == vr::k_unTrackedDeviceIndex_Hmd) m_hmdPoseRate.Tick();
+    if (dev == vr::k_unTrackedDeviceIndex_Hmd) {
+        m_hmdPoseRate.Tick();
+        g_estatFG.poses.fetch_add(1, std::memory_order_relaxed);
+    }
     m_real->TrackedDevicePoseUpdated(dev, pose, size);
 }
 

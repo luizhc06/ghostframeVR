@@ -59,8 +59,12 @@ mod win {
     fn steamvr_aberto() -> bool {
         vr::processo_rodando("vrserver.exe")
     }
-    fn jogo(cfg: &Map<String, Value>) -> String {
-        cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT).to_string()
+    /// Jogo da trava: o fixado pelo usuário ou o que está aberto no SteamVR agora.
+    fn jogo(cfg: &Map<String, Value>, painel: &companion::Painel) -> String {
+        match cfg.get("app.jogo_fixo").and_then(Value::as_str).unwrap_or("") {
+            "" => painel.vr["jogo"]["chave"].as_str().unwrap_or("").to_string(),
+            fixo => fixo.to_string(),
+        }
     }
 
     struct Companion {
@@ -79,7 +83,7 @@ mod win {
             let dados = core::ler_fim(&p, 512 * 1024).map(|t| core::ler_log(&t)).unwrap_or(Value::Null);
             json!({ "caminho": p, "idade": idade, "dados": dados })
         });
-        let jogo = jogo(&cfg);
+        let jogo = jogo(&cfg, &c.painel.lock().unwrap_or_else(|e| e.into_inner()));
         let vrs = vrsettings(&ovr).and_then(|p| core::ler_json(&p));
         let steamapps = ovr.config.as_ref().and_then(|c| c.parent()).map(|s| s.join("steamapps"));
         let jogos = vrs.as_ref().map(|v| core::jogos(v, steamapps.as_deref())).unwrap_or_default();
@@ -209,7 +213,7 @@ mod win {
     /// fechado, direto no steamvr.vrsettings (aberto, ele regravaria o arquivo ao sair).
     #[tauri::command]
     async fn vr_set(chave: String, valor: Value, c: tauri::State<'_, Companion>) -> Result<(), String> {
-        let jogo = jogo(&config());
+        let jogo = jogo(&config(), &c.painel.lock().unwrap_or_else(|e| e.into_inner()));
         let num = || valor.as_f64().ok_or("valor inválido");
         let sim = || valor.as_bool().ok_or("valor inválido");
         let s = |sec: &str, k: &str, v| (sec.to_string(), k.to_string(), v);
@@ -218,6 +222,9 @@ mod win {
             "supersampleManual" => vec![s("steamvr", "supersampleManualOverride", vr::Valor::Bool(sim()?))],
             "motionSmoothing" => vec![s("steamvr", "motionSmoothing", vr::Valor::Bool(sim()?))],
             "trava" => {
+                if jogo.is_empty() {
+                    return Err("Nenhum jogo aberto no SteamVR agora: abra o jogo ou escolha um na lista".into());
+                }
                 let n = vr::Valor::Int(num()?.clamp(0.0, 2.0) as i32);
                 vec![s(&jogo, "framesToThrottle", n), s(&jogo, "additionalFramesToPredict", n)]
             }

@@ -56,6 +56,7 @@ extern "C" {
     fn gf_overlay_mostrar(v: *mut GfVr, h: u64, visivel: bool) -> i32;
     fn gf_overlay_alpha(v: *mut GfVr, h: u64, alpha: f32) -> i32;
     fn gf_vr_poses(v: *mut GfVr, mao: i32, hmd: *mut f32, ctrl: *mut f32) -> bool;
+    fn gf_vr_jogo_atual(v: *mut GfVr, chave: *mut c_char, tchave: u32, nome: *mut c_char, tnome: u32) -> bool;
     #[cfg(windows)]
     fn gf_processo_rodando(nome: *const u16) -> bool;
 }
@@ -152,12 +153,16 @@ fn cstr(s: &str) -> Result<CString, String> {
     CString::new(s).map_err(|_| format!("texto com NUL: {s:?}"))
 }
 
+/// Onde o openvr_api procura o vrclient: no Windows fica direto em <runtime>\\bin
+/// (o vrserver é que fica em bin\\win64); no Linux, em bin/linux64.
 fn biblioteca_cliente(runtime: &Path) -> PathBuf {
-    if cfg!(windows) {
-        runtime.join("bin").join("win64").join("vrclient_x64.dll")
+    let bin = runtime.join("bin");
+    let candidatos = if cfg!(windows) {
+        [bin.join("vrclient_x64.dll"), bin.join("win64").join("vrclient_x64.dll")]
     } else {
-        runtime.join("bin").join("linux64").join("vrclient.so")
-    }
+        [bin.join("linux64").join("vrclient.so"), bin.join("vrclient.so")]
+    };
+    candidatos.iter().find(|p| p.is_file()).unwrap_or(&candidatos[0]).clone()
 }
 
 #[cfg(windows)]
@@ -262,6 +267,13 @@ impl Vr {
         };
         let (mut hmd, mut ctrl) = ([0.0; 12], [0.0; 12]);
         unsafe { gf_vr_poses(self.p, mao, hmd.as_mut_ptr(), ctrl.as_mut_ptr()) }.then_some((hmd, ctrl))
+    }
+
+    /// Jogo aberto no SteamVR agora: (chave como "steam.app.438100", nome).
+    pub fn jogo_atual(&self) -> Option<(String, String)> {
+        let (mut chave, mut nome) = ([0u8; 256], [0u8; 256]);
+        let ok = unsafe { gf_vr_jogo_atual(self.p, chave.as_mut_ptr().cast(), 256, nome.as_mut_ptr().cast(), 256) };
+        ok.then(|| (texto(&chave), texto(&nome)))
     }
 
     /// Registra o .vrmanifest (ver `manifesto`) e liga/desliga a abertura junto com o SteamVR.

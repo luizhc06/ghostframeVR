@@ -207,7 +207,13 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
 
         let info = s.vr.info_hmd();
         let timing = s.vr.timing();
-        let jogo = cfg.get("app.jogo").and_then(Value::as_str).unwrap_or(core::VRCHAT);
+        // A trava vale para o jogo aberto no SteamVR, a menos que o usuário fixe um.
+        let jogo_atual = s.vr.jogo_atual();
+        let jogo = match texto(&cfg, "app.jogo_fixo") {
+            "" => jogo_atual.as_ref().map(|(k, _)| k.clone()).unwrap_or_default(),
+            fixo => fixo.to_string(),
+        };
+        let jogo = jogo.as_str();
         let f = |sec: &str, k: &str, t: vr::Tipo| match s.vr.ler(sec, k, t) {
             Some(vr::Valor::Float(x)) => json!(x),
             Some(vr::Valor::Int(x)) => json!(x),
@@ -278,7 +284,9 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
             }
         }
         let manual = texto(&cfg, "framegen.multiplicador").parse::<i64>().unwrap_or(2).clamp(2, 3) - 1;
-        let alvo_trava = if fg_ok {
+        let alvo_trava = if jogo.is_empty() {
+            None // nenhum jogo aberto: nada a travar agora
+        } else if fg_ok {
             if texto(&cfg, "framegen.modo") == "auto" { decisao.map(|d| i64::from(d.trava)) } else { Some(manual) }
         } else if nossa.is_some() {
             Some(0)
@@ -442,6 +450,7 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
                     "reprojetados": t.reprojetados, "perdidos": t.perdidos,
                 })),
                 "config": config_vr,
+                "jogo": jogo_atual.as_ref().map(|(k, n)| json!({ "chave": k, "nome": n })),
             }),
             None => Value::Null,
         };

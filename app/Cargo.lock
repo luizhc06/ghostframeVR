@@ -1243,7 +1243,7 @@ dependencies = [
 
 [[package]]
 name = "ghostframevr"
-version = "0.2.2-alpha"
+version = "0.2.3-alpha"
 dependencies = [
  "cc",
  "serde_json",

@@ -213,6 +213,17 @@ bool gf_vr_deve_sair(GfVr *v) {
     return false;
 }
 
+// Jogo (app de cena) rodando agora: chave do SteamVR ("steam.app.438100") e nome.
+bool gf_vr_jogo_atual(GfVr *v, char *chave, uint32_t tchave, char *nome, uint32_t tnome) {
+    uint32_t pid = v->apps->GetCurrentSceneProcessId();
+    if (!pid || v->apps->GetApplicationKeyByProcessId(pid, chave, tchave) != vr::VRApplicationError_None || !chave[0])
+        return false;
+    vr::EVRApplicationError e = vr::VRApplicationError_None;
+    v->apps->GetApplicationPropertyString(chave, vr::VRApplicationProperty_Name_String, nome, tnome, &e);
+    if (e != vr::VRApplicationError_None) nome[0] = 0;
+    return true;
+}
+
 int32_t gf_vr_autostart(GfVr *v, const char *manifesto, const char *chave, bool ligado) {
     vr::EVRApplicationError e = v->apps->AddApplicationManifest(manifesto, false);
     if (e != vr::VRApplicationError_None && e != vr::VRApplicationError_AppKeyAlreadyExists) return e;
