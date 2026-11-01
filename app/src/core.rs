@@ -119,7 +119,7 @@ pub fn ler_autoteste(saida: &str, codigo: Option<i32>) -> Value {
         .iter()
         .find_map(|l| depois(l, "FrameGen: iniciado (hardware, ").and_then(|r| r.rsplit_once(", feature").map(|(g, _)| g.to_string())))
         .or_else(|| linhas.iter().find_map(|l| l.strip_prefix("adaptador padrão: ").map(|r| r.split(" (vendor").next().unwrap_or(r).to_string())));
-    let resumo: Vec<&str> = linhas.iter().copied().filter(|l| ["a) ", "b) ", "c) "].iter().any(|p| l.starts_with(p))).collect();
+    let resumo: Vec<&str> = linhas.iter().copied().filter(|l| ["a) ", "b) ", "c) ", "d) "].iter().any(|p| l.starts_with(p))).collect();
     let falhas: Vec<&str> = linhas.iter().copied().filter(|l| l.starts_with("FALHOU:")).collect();
     let ms: Vec<f64> = linhas
         .iter()
@@ -143,6 +143,8 @@ pub fn ler_autoteste(saida: &str, codigo: Option<i32>) -> Value {
         "gpuMsMax": ms.iter().cloned().fold(None, |m: Option<f64>, x| Some(m.map_or(x, |m| m.max(x)))),
         "pctRepetidos": pct("repetidos trocados pelo gerado"),
         "pctTrava": pct(" reais intactos, "),
+        // d): jogo abaixo dos Hz sem repetir e sem trava (o caso do Pico Connect).
+        "pctRelogio": pct("gerados no vsync vazio"),
     })
 }
 
@@ -850,6 +852,9 @@ mod testes {
         // Código de saída diferente de 0 ou SKIP: não passou.
         assert_eq!(ler_autoteste(include_str!("amostras/autoteste_ci.txt"), Some(1))["passou"], false);
         assert!(r["sonda"].is_null()); // a amostra da CI é de antes da sonda nova
+        assert!(r["pctRelogio"].is_null()); // e de antes do cenário d
+        let d = ler_autoteste("d) 60 quadros do jogo: 60 com 2 Presents no driver, 60 reais intactos, 58 gerados no vsync vazio (97%)\n", Some(0));
+        assert_eq!(d["pctRelogio"], 97.0);
         let d = ler_autoteste("sonda: escrita+espera=ok; relida=ok; conteúdo na criação=4096 de 16384 bytes diferentes; keyed mutex=ok\n", Some(0));
         assert_eq!(d["sonda"], "escrita+espera=ok; relida=ok; conteúdo na criação=4096 de 16384 bytes diferentes; keyed mutex=ok");
         let s = ler_autoteste("SKIP: sem adaptador de hardware que compartilhe texturas\n", Some(77));
