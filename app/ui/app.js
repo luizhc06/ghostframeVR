@@ -212,6 +212,8 @@ $("#btn-autoteste").onclick = async (ev) => {
       `<li><b>custo</b> ${esc(ms)}</li>`,
       r.pctRepetidos != null ? `<li><b>sem trava</b> ${fmt(r.pctRepetidos)}% dos quadros repetidos trocados por gerados</li>` : "",
       r.pctTrava != null ? `<li><b>com trava</b> ${fmt(r.pctTrava)}% dos quadros extras gerados</li>` : "",
+      r.pctRelogio != null ? `<li><b>sem repetir</b> ${fmt(r.pctRelogio)}% dos vsyncs vazios com quadro gerado (o caso do Pico)</li>` : "",
+      r.pctManual != null ? `<li><b>manual 2x</b> ${fmt(r.pctManual)}% dos quadros do jogo com um gerado junto (o proxy trava o jogo na metade)</li>` : "",
       ...(r.falhas || []).slice(0, 5).map((f) => `<li class="falta"><b>erro</b> ${esc(f)}</li>`),
     ];
     if (r.sonda && (r.skip || !r.passou)) linhas.push(`<li><b>sonda</b> ${esc(r.sonda)}</li>`);

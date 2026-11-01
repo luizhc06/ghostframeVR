@@ -120,6 +120,25 @@ private:
     double m_tUltimoReal = 0, m_intervaloJogo = 0, m_tUltimoPresent = 0, m_intervaloPresent = 0;
     double m_tPresent = 0;       // último Present do compositor, ligado ou não (base da trava)
     uint32_t m_divisor = 2;      // frames por frame real esperados (trava + 1); alfa = k / divisor
+    // Relógio próprio: o SteamVR só chama Present quando o jogo tem quadro novo (sem repetir,
+    // sem trava, caso do Pico Connect). Abaixo dos Hz do headset, o proxy entrega os gerados
+    // nos vsyncs vazios. `m_alfaPasso` = alfa de cada gerado (1/divisor com trava ou repetição;
+    // período do vsync / intervalo do jogo no relógio próprio).
+    double m_alfaPasso = 0.5;
+    double m_passoPendente = 0;  // alfa-passo com que o gerado pendente foi feito
+    uint32_t m_extrasRelogio = 0;
+    // Crédito de vsyncs vazios por quadro real (I/período - 1): a 60 fps em 90 Hz dá um
+    // gerado a cada 2 reais, a 45 fps um por real; o total fica nos Hz do headset.
+    double m_credito = 0;
+    double m_ultimoIntervalo = 0;  // intervalo do último par de quadros reais (sem média)
+    // Pior caso recente (esquece 5% por chamada) do tempo dentro do PostPresent do driver e do
+    // Present de um gerado: a guarda do relógio conta com o pico, não com a média.
+    double m_dPost = 0;
+    double m_dPresent = 0;
+    double m_dPostMedia = 0;       // a média, só para o log (pp_ms)
+    double m_tSaida = 0, m_folga = 0.01; // saída do PostPresent no relógio e a folga até o quadro novo
+    double m_relogioPausaAte = 0;  // o compositor esperou pelo proxy: relógio pausado até aqui
+    void PostPresentReal(const Throttling_t *t);
     Conjunto m_saida[2] = {};
     bool m_temSaida = false, m_saidaUnica = false, m_saidaNt = false;
     uint32_t m_idxSaida = 0;

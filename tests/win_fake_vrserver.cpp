@@ -299,11 +299,36 @@ public:
     void SetRecommendedRenderTargetSize(uint32_t, uint32_t, uint32_t) override {}
 } g_host;
 
+// Propriedades: como o Pico, o headset informa os Hz (o proxy usa no relógio próprio). Um vsync
+// do teste dura kVsync, então o "headset" roda a 1/kVsync Hz.
+class Props : public vr::IVRProperties {
+public:
+    vr::ETrackedPropertyError ReadPropertyBatch(vr::PropertyContainerHandle_t c, vr::PropertyRead_t *b, uint32_t n) override {
+        for (uint32_t i = 0; i < n; ++i) {
+            b[i].eError = vr::TrackedProp_UnknownProperty;
+            if (c == 77 && b[i].prop == vr::Prop_DisplayFrequency_Float && b[i].unBufferSize >= sizeof(float)) {
+                *static_cast<float *>(b[i].pvBuffer) = float(1.0 / kVsync);
+                b[i].unRequiredBufferSize = sizeof(float);
+                b[i].unTag = vr::k_unFloatPropertyTag;
+                b[i].eError = vr::TrackedProp_Success;
+            }
+        }
+        return vr::TrackedProp_Success;
+    }
+    vr::ETrackedPropertyError WritePropertyBatch(vr::PropertyContainerHandle_t, vr::PropertyWrite_t *b, uint32_t n) override {
+        for (uint32_t i = 0; i < n; ++i) b[i].eError = vr::TrackedProp_Success;
+        return vr::TrackedProp_Success;
+    }
+    const char *GetPropErrorNameFromEnum(vr::ETrackedPropertyError) override { return ""; }
+    vr::PropertyContainerHandle_t TrackedDeviceToPropertyContainer(vr::TrackedDeviceIndex_t d) override { return d == 0 ? 77 : 0; }
+} g_props;
+
 class Ctx : public vr::IVRDriverContext {
 public:
     void *GetGenericInterface(const char *v, vr::EVRInitError *e) override {
         if (e) *e = vr::VRInitError_None;
         if (!std::strcmp(v, vr::IVRServerDriverHost_Version)) return &g_host;
+        if (!std::strcmp(v, vr::IVRProperties_Version)) return &g_props;
         if (e) *e = vr::VRInitError_Init_InterfaceNotFound;
         return nullptr;
     }
@@ -355,6 +380,8 @@ struct Compositor {
 
 // Um vsync: desenha o frame `jogo` na textura que o driver indicou, submete com a pose dele,
 // Present e PostPresent (trava = nFramesToThrottle). Devolve o handle submetido.
+double g_tPresent = 0; // quando o último Vsync chamou Present
+
 vr::SharedTextureHandle_t Vsync(Compositor &c, int jogo, uint32_t trava) {
     const uint32_t i = c.idx;
     Desenha(jogo, c.img);
@@ -370,6 +397,7 @@ vr::SharedTextureHandle_t Vsync(Compositor &c, int jogo, uint32_t trava) {
         e[olho].mHmdPose = Pose(jogo);
     }
     c.dm->SubmitLayer(e);
+    g_tPresent = gf::NowSeconds(); // daqui em diante o tempo é do proxy e do driver
     c.dm->Present(c.hSync);
     const DM8::Throttling_t t{trava, 0};
     c.dm->PostPresent(&t);
@@ -417,9 +445,9 @@ struct Desloc {
     }
 };
 
-void EscreveIni(const std::string &caminho, bool ligado) {
+void EscreveIni(const std::string &caminho, bool ligado, const char *extra = "") {
     std::ofstream f(caminho, std::ios::trunc);
-    f << "; teste ponta a ponta\n[framegen]\nativo = " << (ligado ? 1 : 0) << "\n";
+    f << "; teste ponta a ponta\n[framegen]\nativo = " << (ligado ? 1 : 0) << "\n" << extra;
 }
 
 // Fim do ghostframe.log desta execução (o arquivo é aberto em modo append).
@@ -464,6 +492,8 @@ int main(int argc, char **argv) {
     CreateDirectoryA(local.c_str(), nullptr);
     CreateDirectoryA((local + "\\ghostframeVR").c_str(), nullptr);
     SetEnvironmentVariableA("LOCALAPPDATA", local.c_str());
+    // O "headset" deste teste roda a ~33 Hz (vsync de 30 ms): o relógio próprio aceita.
+    SetEnvironmentVariableA("GF_TESTE_HZ_LIVRE", "1");
     const std::string ini = local + "\\ghostframeVR\\ghostframe.ini";
     EscreveIni(ini, false);
 
@@ -636,6 +666,133 @@ int main(int argc, char **argv) {
         CHECK(gerados * 10 >= quadros * 8);
         d.Confere("c");
     }
+
+    // ---- d) como o Pico Connect: sem trava e sem repetir quadro. O compositor só chama Present
+    // quando o jogo tem quadro novo (a metade dos Hz do headset); o proxy gera no vsync vazio. ----
+    std::printf("\n== d) jogo a meia taxa sem repetir quadro e sem trava (relógio próprio) ==\n");
+    {
+        int quadros = 0, comDois = 0, reaisIntactos = 0, gerados = 0;
+        Desloc d;
+        for (int k = 0; k < 70; ++k, ++jogo) {
+            const double tv = gf::NowSeconds();
+            const int de = fake.presents();
+            const vr::SharedTextureHandle_t h = Vsync(c, jogo, 0);
+            const std::vector<Reg> r = Registros(fake, de);
+            if (k >= 10) { // o proxy mede o ritmo do jogo pelos Presents
+                quadros++;
+                comDois += r.size() == 2;
+                reaisIntactos += !r.empty() && Intacto(r[0], h, jogo);
+                if (r.size() == 2 && r[1].doProxy) {
+                    gerados++;
+                    d.Anota(r[1], jogo);
+                }
+            }
+            gf::DormirAte(tv + 2 * kVsync); // o jogo entrega um quadro a cada 2 vsyncs
+        }
+        std::printf("d) %d quadros do jogo: %d com 2 Presents no driver, %d reais intactos, %d gerados no vsync vazio (%.0f%%)\n",
+                    quadros, comDois, reaisIntactos, gerados, 100.0 * gerados / quadros);
+        CHECK(reaisIntactos == quadros);
+        CHECK(gerados * 10 >= quadros * 8);
+        d.Confere("d");
+    }
+
+    // ---- e) jogo a 2/3 dos Hz (como 60 fps em 90 Hz): um gerado a cada 2 reais, nunca mais
+    // Presents que os vsyncs. ----
+    std::printf("\n== e) jogo a 2/3 dos Hz sem repetir (crédito: 1 gerado a cada 2 reais) ==\n");
+    auto lerImagem = Funcao<void (*)(int)>(hReal, "FakePico_LerImagem");
+    CHECK(lerImagem != nullptr);
+    if (lerImagem) lerImagem(0); // e, f e g só contam quadros
+    {
+        int quadros = 0, gerados = 0, presents = 0;
+        for (int k = 0; k < 80; ++k, ++jogo) {
+            const double tv = gf::NowSeconds();
+            const int de = fake.presents();
+            Vsync(c, jogo, 0);
+            const std::vector<Reg> r = Registros(fake, de);
+            if (k >= 10) {
+                quadros++;
+                presents += int(r.size());
+                gerados += r.size() == 2 && r[1].doProxy;
+            }
+            gf::DormirAte(tv + 1.5 * kVsync);
+        }
+        // 70 quadros em 70*1.5 vsyncs: o ideal é 35 gerados (headset cheio, sem passar).
+        std::printf("e) %d quadros do jogo: %d gerados (%.0f%% dos quadros), %d Presents no driver em %.0f vsyncs\n",
+                    quadros, gerados, 100.0 * gerados / quadros, presents, quadros * 1.5);
+        CHECK(gerados * 10 >= quadros * 3 && gerados * 10 <= quadros * 7);
+        CHECK(presents <= int(quadros * 1.5 * 1.05) + 2); // headset cheio, sem passar (5% de folga de tempo)
+    }
+
+    // ---- f) driver cujo PostPresent demora 20 ms (como um que espera o próprio vsync), jogo a
+    // 1/3 dos Hz: cabe um gerado, e o proxy nunca segura o compositor até o próximo quadro. ----
+    std::printf("\n== f) PostPresent do driver demorando 20 ms ==\n");
+    {
+        auto espera = Funcao<void (*)(int)>(hReal, "FakePico_EsperaPostPresent");
+        CHECK(espera != nullptr);
+        if (espera) espera(20);
+        int quadros = 0, gerados = 0;
+        std::vector<double> preso;
+        for (int k = 0; k < 60; ++k, ++jogo) {
+            const double tv = gf::NowSeconds();
+            const int de = fake.presents();
+            Vsync(c, jogo, 0);
+            // Do Present do compositor até o proxy devolver o PostPresent (o desenho do
+            // compositor falso antes do Present não é do proxy).
+            const double segurou = gf::NowSeconds() - g_tPresent;
+            const std::vector<Reg> r = Registros(fake, de);
+            if (k >= 10) {
+                quadros++;
+                gerados += r.size() == 2 && r[1].doProxy;
+                preso.push_back(segurou);
+            }
+            gf::DormirAte(tv + 3 * kVsync);
+        }
+        if (espera) espera(0);
+        std::sort(preso.begin(), preso.end());
+        const double p50 = preso[preso.size() / 2], p90 = preso[preso.size() * 9 / 10], pmax = preso.back();
+        const int passou = int(std::count_if(preso.begin(), preso.end(), [](double x) { return x >= 3 * kVsync; }));
+        std::printf("f) %d quadros: %d gerados (%.0f%%); compositor preso: mediana %.1f ms, 90%% %.1f ms, máx %.1f ms, "
+                    "%d de %d além do próximo quadro (%.0f ms)\n",
+                    quadros, gerados, 100.0 * gerados / quadros, p50 * 1000, p90 * 1000, pmax * 1000, passou, quadros,
+                    3 * kVsync * 1000);
+        // A guarda decide antes de gerar, com o que mediu; um soluço isolado da "GPU" em software
+        // da CI pode passar. O que não pode é virar regra.
+        CHECK(p90 < 3 * kVsync - 0.002);
+        CHECK(passou * 10 <= quadros);
+        CHECK(gerados * 10 >= quadros * 3);
+    }
+
+    // ---- g) Manual 2x sem trava do SteamVR: o jogo tenta rodar no máximo e o proxy o trava na
+    // metade dos Hz, com um gerado em cada vsync do meio (o pedido "sempre 2x"). ----
+    std::printf("\n== g) manual 2x: o proxy trava o jogo na metade e gera o resto ==\n");
+    EscreveIni(ini, true, "modo = manual\nmultiplicador = 2\n");
+    Sleep(1500); // o proxy relê o ini a cada 1 s
+    {
+        int quadros = 0, comDois = 0, gerados = 0;
+        double total = 0;
+        for (int k = 0; k < 60; ++k, ++jogo) {
+            const int de = fake.presents();
+            const double tv = gf::NowSeconds();
+            Vsync(c, jogo, 0); // nenhuma espera do "jogo": quem segura o ritmo é o proxy
+            const double dur = gf::NowSeconds() - tv;
+            const std::vector<Reg> r = Registros(fake, de);
+            if (k >= 10) {
+                quadros++;
+                comDois += r.size() == 2;
+                gerados += r.size() == 2 && r[1].doProxy;
+                total += dur;
+            }
+        }
+        const double media = total / quadros;
+        std::printf("g) %d quadros do jogo: %d com 2 Presents, %d gerados (%.0f%%); cada quadro real levou em média "
+                    "%.1f ms (2 vsyncs = %.0f ms)\n",
+                    quadros, comDois, gerados, 100.0 * gerados / quadros, media * 1000, 2 * kVsync * 1000);
+        CHECK(gerados * 10 >= quadros * 8);
+        CHECK(media >= 1.7 * kVsync); // o jogo ficou na metade dos Hz
+    }
+    EscreveIni(ini, true);
+    Sleep(1500);
+    if (lerImagem) lerImagem(1);
 
     // O proxy nunca segurou o sync na hora errada: driver e compositor sempre o acharam livre.
     CHECK(fake.syncFalhou() == 0);
