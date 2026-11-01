@@ -7,7 +7,7 @@ if (!window.__TAURI__) {
   let vrcLimitador = false;
   // Valores de um VRChat recém-instalado (registro real).
   const vrcPadrao = { rank: 5, impostor: 1, maxLigado: 0, maxAvatares: 80, distLigada: 0, distancia: 100, espelho: 0, sombras: 2, lod: 1, aa: 4 };
-  let vrcAjustes = { ...vrcPadrao }, vrcBackup = false, energiaAlto = false;
+  let vrcAjustes = { ...vrcPadrao }, vrcBackup = false, energiaAlto = false, steamOpcoes = "--no-vr";
   const vrcAberto = /vrcaberto/.test(location.search);
   const cfg = {
     "framegen.ativo": "1", "framegen.modo": "auto", "framegen.multiplicador": "2",
@@ -95,6 +95,12 @@ if (!window.__TAURI__) {
           Object.assign(vrcAjustes, a.valores); vrcBackup = true; return "VRChat ajustado: vale quando ele abrir.";
         }
         if (cmd === "vrchat_restaurar") { vrcAjustes = { ...vrcPadrao }; vrcBackup = false; return "Opções do VRChat de volta como eram."; }
+        if (cmd === "vrchat_opcoes_steam") {
+          if (/steamaberta/.test(location.search)) throw "feche a Steam antes: aberta, ela regrava as opções de inicialização ao sair";
+          const nossas = ["--process-priority=", "--main-thread-priority=", "--affinity="];
+          steamOpcoes = steamOpcoes.split(" ").filter((o) => o && !nossas.some((n) => o.startsWith(n))).concat(a.nossas.split(" ").filter(Boolean)).join(" ");
+          return `Na Steam, o VRChat abre com: ${steamOpcoes}`;
+        }
         if (cmd === "plano_energia_usar") { energiaAlto = a.alto; return `Plano de energia: ${a.alto ? "Alto desempenho" : "Equilibrado"}.`; }
         if (cmd === "instalar") return "proxy instalado. Backup em C:\\Users\\voce\\AppData\\Local\\ghostframeVR\\backup\\win64-1793476800";
         if (cmd === "desinstalar") throw "feche o SteamVR antes: a DLL do driver fica travada enquanto ele roda";
@@ -111,7 +117,7 @@ if (!window.__TAURI__) {
         return {
           framegenDisponivel: on, alvoAuto: !cfg["app.alvo"], versao: "0.2.0-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
           processos: { steamvr: aberto },
-          vrchat: { aberto: vrcAberto, jogo: { rodou: true, contas: 1, ajustes: { ...vrcAjustes }, temBackup: vrcBackup },
+          vrchat: { aberto: vrcAberto, steam: { aberta: /steamaberta/.test(location.search), opcoes: steamOpcoes }, jogo: { rodou: true, contas: 1, ajustes: { ...vrcAjustes }, temBackup: vrcBackup },
             energia: { alto: energiaAlto, nome: energiaAlto ? "Alto desempenho" : "Equilibrado" }, ...(/vrcerro/.test(location.search)
             ? { limitador: null, erroConfig: "o config.json do VRChat é um JSON inválido (linha 3): não mexi nele" }
             : { limitador: vrcLimitador, erroConfig: null }), amd: /amd/.test(location.search), threads: 24, hags: true },

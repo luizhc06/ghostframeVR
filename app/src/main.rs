@@ -9,6 +9,7 @@ mod companion;
 mod core;
 mod hud;
 mod vr;
+mod steam;
 mod vrchat;
 
 #[cfg(not(windows))]
@@ -24,7 +25,7 @@ fn main() {
 #[cfg(windows)]
 mod win {
     use crate::core::{self, Driver};
-    use crate::{companion, hud, vr, vrchat};
+    use crate::{companion, hud, steam, vr, vrchat};
     use serde_json::{json, Map, Value};
     use std::os::windows::process::CommandExt;
     use std::path::{Path, PathBuf};
@@ -139,7 +140,17 @@ mod win {
             "processos": { "steamvr": steamvr_aberto() },
             "drivers": drivers,
             "alvoAuto": cfg.get("app.alvo").and_then(Value::as_str).unwrap_or("").is_empty(),
-            "alvo": alvo.map(|d| { let mut j = d.json(); j["estado"] = core::estado(&d.dll).codigo().into(); j }),
+            "alvo": alvo.map(|d| {
+                let mut j = d.json();
+                j["estado"] = core::estado(&d.dll).codigo().into();
+                // Atualização automática: só para uma versão mais nova que a que instalou o
+                // proxy (duas versões do app não brigam) e sem pedir administrador de surpresa.
+                let instalada = cfg.get("app.proxy_versao").and_then(Value::as_str).unwrap_or("");
+                j["desatualizado"] = core::proxy_diferente(&d.dll, PROXY_DLL).into();
+                j["maisNovo"] = core::versao_maior(env!("CARGO_PKG_VERSION"), instalada).into();
+                j["podeEscrever"] = core::pode_escrever(&d.dll).into();
+                j
+            }),
             "log": log,
             "config": cfg,
             "steamvr": steamvr,
@@ -159,6 +170,12 @@ mod win {
             "amd": core::cpu_amd(),
             "threads": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
             "hags": hags(),
+            // Opções de inicialização que a Steam tem para o VRChat (null: não achei a conta).
+            "steam": match localconfig(&ovr).map(|p| fs::read_to_string(p).map_err(|e| e.to_string()).and_then(|t| steam::opcoes(&t, VRCHAT_APPID))) {
+                Some(Ok(o)) => json!({ "aberta": vr::processo_rodando("steam.exe"), "opcoes": o }),
+                Some(Err(e)) => json!({ "aberta": vr::processo_rodando("steam.exe"), "opcoes": null, "erro": e }),
+                None => json!({ "aberta": vr::processo_rodando("steam.exe"), "opcoes": null }),
+            },
             "energia": plano_energia().map(|g| json!({
                 "alto": g == PLANO_ALTO || g == PLANO_MAXIMO,
                 "nome": match g.as_str() { PLANO_ALTO => "Alto desempenho", PLANO_MAXIMO => "Desempenho máximo", PLANO_EQUILIBRADO => "Equilibrado", _ => "outro" },
@@ -253,7 +270,12 @@ mod win {
 
     #[tauri::command]
     async fn instalar() -> Result<String, String> {
-        operar("instalar")
+        let r = operar("instalar")?;
+        // Lembra qual versão do app instalou o proxy (a automática só sobe de versão).
+        let mut v = Map::new();
+        v.insert("app.proxy_versao".into(), json!(env!("CARGO_PKG_VERSION")));
+        let _ = salvar_config(v);
+        Ok(r)
     }
 
     #[tauri::command]
@@ -408,6 +430,42 @@ mod win {
         Ok(format!("Plano de energia: {}.", if alto { "Alto desempenho" } else { "Equilibrado" }))
     }
 
+    const VRCHAT_APPID: &str = "438100";
+
+    /// localconfig.vdf da conta Steam usada por último (userdata\<conta>\config). Sem
+    /// loginusers útil, o localconfig mexido por último.
+    fn localconfig(ovr: &core::OpenVrPaths) -> Option<PathBuf> {
+        let raiz = ovr.config.as_ref()?.parent()?.to_path_buf(); // ...\Steam\config -> ...\Steam
+        let lu = fs::read_to_string(raiz.join("config").join("loginusers.vdf")).unwrap_or_default();
+        let por_conta = steam::conta_recente(&lu).map(|c| raiz.join("userdata").join(c).join("config").join("localconfig.vdf"));
+        por_conta.filter(|p| p.exists()).or_else(|| {
+            fs::read_dir(raiz.join("userdata")).ok()?.flatten()
+                .map(|e| e.path().join("config").join("localconfig.vdf"))
+                .filter_map(|p| Some((fs::metadata(&p).ok()?.modified().ok()?, p)))
+                .max()
+                .map(|(_, p)| p)
+        })
+    }
+
+    /// Grava as nossas opções de inicialização do VRChat na Steam, mantendo as do usuário.
+    /// Só com a Steam fechada: aberta, ela regrava o arquivo ao sair. Backup na 1ª vez.
+    #[tauri::command(async)]
+    fn vrchat_opcoes_steam(nossas: String) -> Result<String, String> {
+        if vr::processo_rodando("steam.exe") {
+            return Err("feche a Steam antes: aberta, ela regrava as opções de inicialização ao sair".into());
+        }
+        let p = localconfig(&openvrpaths()).ok_or("não achei a configuração da sua conta Steam")?;
+        let t = fs::read_to_string(&p).map_err(|e| format!("localconfig.vdf: {e}"))?;
+        let opcoes = steam::mesclar(&steam::opcoes(&t, VRCHAT_APPID)?, &nossas);
+        let novo = steam::com_opcoes(&t, VRCHAT_APPID, &opcoes)?;
+        let backup = p.with_extension("vdf.ghostframe-backup");
+        if !backup.exists() {
+            fs::write(&backup, &t).map_err(|e| format!("backup do localconfig.vdf: {e}"))?;
+        }
+        core::gravar_atomico(&p, &novo).map_err(|e| format!("localconfig.vdf: {e}"))?;
+        Ok(if opcoes.is_empty() { "Opções de inicialização do VRChat limpas na Steam.".into() } else { format!("Na Steam, o VRChat abre com: {opcoes}") })
+    }
+
     fn backup_vrchat() -> PathBuf {
         pasta_app().join("vrchat-backup.json")
     }
@@ -502,7 +560,8 @@ mod win {
             }))
             .invoke_handler(tauri::generate_handler![
                 estado, salvar_config, escolher_alvo, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta,
-                vrchat_particulas, abrir_graficos_windows, vrchat_ajustar, vrchat_restaurar, plano_energia_usar
+                vrchat_particulas, abrir_graficos_windows, vrchat_ajustar, vrchat_restaurar, plano_energia_usar,
+                vrchat_opcoes_steam
             ])
             .setup(move |app| {
                 let painel = Arc::new(Mutex::new(companion::Painel::default()));

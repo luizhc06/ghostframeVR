@@ -30,6 +30,7 @@ pub const PADROES: &[(&str, &str)] = &[
     ("app.alvo", ""),
     ("app.jogo_fixo", ""), // vazio = trava no jogo que estiver aberto
     ("app.autostart", "0"),
+    ("app.proxy_versao", ""), // versão do app que instalou o proxy (atualização automática)
     // Opções de inicialização do VRChat que a aba VRChat monta para copiar (não vão a lugar nenhum sozinhas).
     ("vrchat.prioridade", "1"),
     ("vrchat.thread", "0"),
@@ -107,6 +108,12 @@ pub fn cpu_amd() -> bool {
 
 fn erro(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::Other, msg.into())
+}
+
+/// "0.2.10-alpha" > "0.2.9-alpha": compara os números, não o texto.
+pub fn versao_maior(a: &str, b: &str) -> bool {
+    let n = |v: &str| v.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).map(|x| x.parse::<u64>().unwrap_or(0)).take(3).collect::<Vec<_>>();
+    n(a) > n(b)
 }
 
 pub fn agora() -> u64 {
@@ -377,6 +384,26 @@ fn eh_nossa(p: &Path) -> bool {
     marcas(p).0
 }
 
+/// O proxy instalado é diferente do que vem dentro deste app (abriu um app mais novo).
+/// Compara os bytes, mas só relê a DLL quando ela muda.
+pub fn proxy_diferente(dll: &Path, proxy: &[u8]) -> bool {
+    type Cache = Option<(PathBuf, u64, Option<SystemTime>, bool)>;
+    static CACHE: Mutex<Cache> = Mutex::new(None);
+    if proxy.is_empty() || estado(dll) != Estado::Instalado {
+        return false;
+    }
+    let (tam, mtime) = fs::metadata(dll).map(|m| (m.len(), m.modified().ok())).unwrap_or((0, None));
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((cp, ct, cm, r)) = c.as_ref() {
+        if cp == dll && *ct == tam && *cm == mtime {
+            return *r;
+        }
+    }
+    let r = tam != proxy.len() as u64 || fs::read(dll).map(|b| b != proxy).unwrap_or(false);
+    *c = Some((dll.to_path_buf(), tam, mtime, r));
+    r
+}
+
 /// O proxy instalado nesse driver já sabe gerar frames (proxy antigo: precisa atualizar).
 pub fn proxy_com_framegen(dll: &Path) -> bool {
     estado(dll) == Estado::Instalado && marcas(dll).1
@@ -423,7 +450,14 @@ pub fn instalar(dll: &Path, proxy: &[u8], backups: &Path) -> io::Result<String> 
             return Err(erro("a DLL original (_real) sumiu; reinstale o Pico Connect e tente de novo"))
         }
         Estado::Instalado => {
-            fs::write(dll, proxy)?;
+            // .tmp + rename: uma escrita pela metade não pode deixar uma DLL truncada
+            // (ela pareceria "restaurada pelo Pico" e a próxima instalação a trataria como original).
+            let tmp = dll.with_extension("dll.tmp");
+            fs::write(&tmp, proxy)?;
+            if let Err(e) = fs::rename(&tmp, dll) {
+                let _ = fs::remove_file(&tmp);
+                return Err(e);
+            }
             return Ok("proxy atualizado".into());
         }
         Estado::Original | Estado::Sobrescrito => {}
@@ -764,6 +798,14 @@ pub fn gravar_atomico(arquivo: &Path, conteudo: &str) -> io::Result<()> {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn compara_versoes() {
+        assert!(versao_maior("0.2.10-alpha", "0.2.9-alpha"));
+        assert!(!versao_maior("0.2.9-alpha", "0.2.10-alpha"));
+        assert!(!versao_maior("0.2.10-alpha", "0.2.10-alpha"));
+        assert!(versao_maior("0.3.0", ""));
+    }
 
     #[test]
     fn config_do_vrchat_limitador_de_particulas() {

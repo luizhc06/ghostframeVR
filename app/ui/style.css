@@ -311,3 +311,8 @@ label.ajuste { cursor: pointer; }
 .dicas b { color: #fff; }
 .dicas li::marker { color: var(--ciano); }
 .nota.mini { margin: 4px 0 0; font-size: 11px; }
+.conferencia { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
+.conferencia[hidden] { display: none; }
+.conferencia b { display: inline-block; width: 44px; font: 600 11px var(--mono); text-transform: uppercase; }
+.conferencia .ok b { color: var(--ciano); }
+.conferencia .falta b { color: var(--alerta); }
