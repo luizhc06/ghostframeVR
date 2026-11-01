@@ -340,14 +340,22 @@ mod win {
                 let pedidos = Mutex::new(companion::iniciar(caminhos, painel.clone(), ao_fechar));
                 app.manage(Companion { painel, pedidos });
                 let abrir = MenuItem::with_id(app, "abrir", "Abrir", true, None::<&str>)?;
+                let fg = MenuItem::with_id(app, "framegen", "Ligar/desligar frame gen", true, None::<&str>)?;
                 let sair = MenuItem::with_id(app, "sair", "Sair", true, None::<&str>)?;
                 TrayIconBuilder::new()
                     .icon(app.default_window_icon().cloned().ok_or("sem ícone")?)
                     .tooltip("ghostframeVR")
-                    .menu(&Menu::with_items(app, &[&abrir, &sair])?)
+                    .menu(&Menu::with_items(app, &[&abrir, &fg, &sair])?)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, ev| match ev.id.as_ref() {
                         "abrir" => abrir_janela(app),
+                        // Sem abrir a janela: o proxy relê o ini a cada segundo.
+                        "framegen" => {
+                            let ligado = config().get("framegen.ativo").and_then(Value::as_str) == Some("1");
+                            let mut v = Map::new();
+                            v.insert("framegen.ativo".into(), json!(if ligado { "0" } else { "1" }));
+                            let _ = salvar_config(v);
+                        }
                         "sair" => app.exit(0),
                         _ => {}
                     })

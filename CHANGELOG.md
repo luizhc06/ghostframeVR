@@ -10,6 +10,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 - Frame gen nunca ligava com o Pico Connect porque o vídeo não passava pelo proxy: drivers como esse entregam os frames por um **plugin carregado dentro do vrcompositor.exe** (`IVRCompositorPluginProvider`), e o proxy só repassava esse pedido. Agora o DirectMode do plugin também é embrulhado, o proxy roda o frame gen dentro do compositor e calcula o frustum dos olhos pela matriz de projeção de cada frame.
 - O app junta no log os dois processos do SteamVR (vrserver e vrcompositor), então fps, frame time, frames gerados e o resumo de componentes aparecem de qualquer um deles.
 - Estatísticas `FRAMEGEN` só saem do processo que vê os frames; o aviso de "sem frames" diz de qual processo está falando.
+- O HUD piscava a cada atualização: agora usa duas texturas de GPU alternadas (em vez de `SetOverlayRaw`) e só reenvia quando a imagem muda.
+
+### Adicionado
+- Painel: chave para ligar e desligar o frame gen ao vivo, com quantos frames reais ele está pegando e quantos está gerando por segundo, e o custo de GPU.
+- Menu do ícone da bandeja: "Ligar/desligar frame gen", sem abrir a janela.
+- Estatísticas do frame gen no log a cada segundo.
 
 ## [0.2.3-alpha] - 2026-10-31
 

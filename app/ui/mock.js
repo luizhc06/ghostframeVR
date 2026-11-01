@@ -110,7 +110,7 @@ if (!window.__TAURI__) {
               avisos: ["  !! versão diferente da que conhecemos (IVRVirtualDisplay_002 / IVRDriverDirectModeComponent_009)"],
               stats: { "DirectMode::Present": fgOn ? present.map((p) => [p[0], p[1] / 2, ...p.slice(2)]) : present,
                 "HMD TrackedDevicePoseUpdated": poses, ...(fgOn ? { FRAMEGEN: serie((t) => [t, 44 + Math.random(), 1]) } : {}) },
-              framegen: fgOn ? { estado: "pronto", reais: 45, gerados: 44.6, falhas: 0, trava: 1, gpuMs: 1.4 } : null,
+              framegen: fgOn ? { estado: "pronto", reais: +(44 + Math.random() * 2).toFixed(1), gerados: +(43.5 + Math.random() * 2).toFixed(1), falhas: 0, trava: 1, gpuMs: +(1.2 + Math.random() * .4).toFixed(2) } : null,
               linhas: [
                 "    0.002  ghostframe proxy iniciado. DLL própria: C:\\...\\driver_pico.dll",
                 "    0.004  Carregando driver real: C:\\...\\driver_pico_real.dll",

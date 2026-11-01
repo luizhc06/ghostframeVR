@@ -74,7 +74,7 @@ void Laco() {
     uint32_t reais0 = 0, gerados0 = 0;
     int semFrames = 0; // segundos com o headset ativo e nenhum Present no proxy
     bool avisou = false;
-    for (int tick = 0;; ++tick) {
+    for (;;) {
         {
             std::unique_lock<std::mutex> lock(g_mutex);
             if (g_cv.wait_for(lock, std::chrono::seconds(1), [] { return g_parar; })) return;
@@ -89,14 +89,13 @@ void Laco() {
         }
         bool fg = g_opcoes.framegen.load();
 
-        // Estatísticas a cada 2 s, só com algo para contar.
-        if (tick % 2) continue;
+        // Estatísticas a cada segundo (o app e o HUD mostram ao vivo), só com algo para contar.
         uint32_t r = g_estatFG.reais.load(), g = g_estatFG.gerados.load();
         int estado = g_estatFG.estado.load();
         // Só o processo que vê os frames (vrserver ou vrcompositor) fala do frame gen.
         if ((fg && g_estatFG.presents.load() > 0) || estado != FG_DESLIGADO) {
             GF_LOG("FRAMEGEN estado=%s reais=%.1f/s gerados=%.1f/s falhas=%u trava=%u gpu_ms=%.2f",
-                   NomeEstado(estado), (r - reais0) / 2.0, (g - gerados0) / 2.0, g_estatFG.falhas.load(),
+                   NomeEstado(estado), double(r - reais0), double(g - gerados0), g_estatFG.falhas.load(),
                    g_estatFG.trava.load(), g_estatFG.msGpu.load());
         }
         reais0 = r;
