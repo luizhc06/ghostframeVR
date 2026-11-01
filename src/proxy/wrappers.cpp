@@ -687,8 +687,8 @@ void *Componentes::Embrulhar(const char *quem, const char *name, void *comp) {
     }
     if (std::strncmp(name, "IVRVirtualDisplay_", 18) == 0 ||
         std::strncmp(name, "IVRDriverDirectModeComponent_", 29) == 0) {
-        GF_LOG("  !! versão diferente das que conhecemos (%s / %s / %s): repassando sem embrulhar",
-                vr::IVRVirtualDisplay_Version, vr::IVRDriverDirectModeComponent_Version,
+        GF_LOG("  !! %s: versão que o proxy não conhece (%s / %s / %s), repassando sem embrulhar: o frame gen não pega esses frames",
+                name, vr::IVRVirtualDisplay_Version, vr::IVRDriverDirectModeComponent_Version,
                 vr::legado::IVRDriverDirectModeComponent_Version);
     }
     return comp;
