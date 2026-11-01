@@ -24,7 +24,7 @@ fn main() {
 #[cfg(windows)]
 mod win {
     use crate::core::{self, Driver};
-    use crate::{companion, hud, vr};
+    use crate::{companion, hud, vr, vrchat};
     use serde_json::{json, Map, Value};
     use std::os::windows::process::CommandExt;
     use std::path::{Path, PathBuf};
