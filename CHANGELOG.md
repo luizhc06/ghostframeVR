@@ -4,6 +4,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.14-alpha] - 2026-11-01
+
 ### Mudado
 - **Manual 2x/3x agora vale sempre**: sem a trava do SteamVR (o Pico Connect não recebe), o proxy trava o jogo ele mesmo na metade ou no terço dos Hz e entrega os quadros gerados nos vsyncs do meio. Só com o motor pronto; se o frame gen falhar, o jogo volta ao ritmo normal. O Auto completa até os Hz quando o jogo fica abaixo.
 
