@@ -131,8 +131,11 @@ private:
     // gerado a cada 2 reais, a 45 fps um por real; o total fica nos Hz do headset.
     double m_credito = 0;
     double m_ultimoIntervalo = 0;  // intervalo do último par de quadros reais (sem média)
-    double m_dPost = 0;            // média do tempo dentro do PostPresent do driver
-    double m_dPresent = 0;         // média do tempo do Present de um gerado (SubmitLayer + Present)
+    // Pior caso recente (esquece 5% por chamada) do tempo dentro do PostPresent do driver e do
+    // Present de um gerado: a guarda do relógio conta com o pico, não com a média.
+    double m_dPost = 0;
+    double m_dPresent = 0;
+    double m_dPostMedia = 0;       // a média, só para o log (pp_ms)
     double m_tSaida = 0, m_folga = 0.01; // saída do PostPresent no relógio e a folga até o quadro novo
     double m_relogioPausaAte = 0;  // o compositor esperou pelo proxy: relógio pausado até aqui
     void PostPresentReal(const Throttling_t *t);

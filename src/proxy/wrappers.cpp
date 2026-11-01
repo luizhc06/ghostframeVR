@@ -411,7 +411,7 @@ void DirectModeWrapper::Reenviar(const Camada *camadas, uint32_t n, double atras
     }
     m_real->Present(m_sync);
     const double d = NowSeconds() - a;
-    if (d >= 0 && d < 0.1) m_dPresent = m_dPresent > 0 ? m_dPresent * 0.8 + d * 0.2 : d;
+    if (d >= 0 && d < 0.1) m_dPresent = d > m_dPresent * 0.95 ? d : m_dPresent * 0.95;
 }
 
 // Entrega o frame gerado pendente no lugar da camada da cena (as outras camadas,
@@ -670,8 +670,11 @@ void DirectModeWrapper::PostPresentReal(const Throttling_t *t) {
     const double a = NowSeconds();
     m_real->PostPresent(t);
     const double d = NowSeconds() - a;
-    if (d >= 0 && d < 0.1) m_dPost = m_dPost > 0 ? m_dPost * 0.8 + d * 0.2 : d;
-    g_estatFG.msPostPresent.store(float(m_dPost * 1000.0), std::memory_order_relaxed);
+    if (d >= 0 && d < 0.1) {
+        m_dPost = d > m_dPost * 0.95 ? d : m_dPost * 0.95;
+        m_dPostMedia = m_dPostMedia > 0 ? m_dPostMedia * 0.9 + d * 0.1 : d;
+    }
+    g_estatFG.msPostPresent.store(float(m_dPostMedia * 1000.0), std::memory_order_relaxed);
 }
 
 void DirectModeWrapper::GetFrameTiming(vr::DriverDirectMode_FrameTiming *ft) {
