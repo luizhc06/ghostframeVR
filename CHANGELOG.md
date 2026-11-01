@@ -4,6 +4,19 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.3-alpha] - 2026-10-31
+
+Correções do primeiro teste real.
+
+### Corrigido
+- O app não conectava ao SteamVR ("não encontrou o vrclient"): o `vrclient_x64.dll` fica em `SteamVR\bin`, não em `bin\win64`. Isso deixava o HUD, os ajustes ao vivo e o fps do jogo sem funcionar.
+- O proxy agora embrulha também o dispositivo de vídeo à parte (DisplayRedirect / `IVRVirtualDisplay`), usado por alguns drivers de streaming.
+- Lista do driver do headset: o driver em uso aparece marcado com "em uso" (também no Automático), comparando caminhos na mesma forma.
+
+### Adicionado
+- A trava de fps vale para o jogo aberto no SteamVR (qualquer jogo), a não ser que você fixe um na lista.
+- Diagnóstico: com o headset ativo e nenhum frame passando pelo proxy por 15 s, o log avisa; o app mostra "sem frames" e a aba Log resume componentes de vídeo e interfaces do driver.
+
 ## [0.2.2-alpha] - 2026-10-31
 
 ### Corrigido

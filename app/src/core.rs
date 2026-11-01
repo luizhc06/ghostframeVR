@@ -28,7 +28,7 @@ pub const PADROES: &[(&str, &str)] = &[
     ("hud.z", "0"),
     ("hud.itens", "fps,frames,ft,graf"),
     ("app.alvo", ""),
-    ("app.jogo", VRCHAT),
+    ("app.jogo_fixo", ""), // vazio = trava no jogo que estiver aberto
     ("app.autostart", "0"),
 ];
 
@@ -184,6 +184,10 @@ fn nome_no_manifesto(raiz: &Path) -> Option<String> {
 /// O SteamVR carrega <raiz>\bin\win64\driver_<name>.dll, com <name> do manifesto.
 /// Se esse arquivo não existe, vale a DLL de driver que estiver de fato na pasta.
 pub fn driver_em(raiz: &Path) -> Driver {
+    // Mesma forma para o que vem do openvrpaths, do vrserver.txt e do usuário: a lista
+    // consegue marcar o driver escolhido comparando caminhos.
+    let raiz = normalizar_raiz(&raiz.to_string_lossy());
+    let raiz = raiz.as_path();
     let pasta = raiz.join("bin").join("win64");
     let mut nome = nome_no_manifesto(raiz)
         .unwrap_or_else(|| raiz.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
@@ -450,7 +454,27 @@ pub fn ler_log(texto: &str) -> Value {
     let mut avisos: Vec<String> = Vec::new();
     let mut stats = Map::new();
     let mut framegen = Value::Null;
+    // Para diagnosticar o caminho de vídeo de um driver novo.
+    let mut componentes: Vec<String> = Vec::new();
+    let mut interfaces: Vec<String> = Vec::new();
+    let mut sem_frames = false;
     for (t, m) in &linhas {
+        const GC: &str = "::GetComponent(\"";
+        if let Some(i) = m.find(GC).filter(|_| m.contains("IMPLEMENTADO")) {
+            let disp = m[..i].trim_start_matches("Device(").trim_end_matches(')');
+            let nome = m[i + GC.len()..].split('"').next().unwrap_or("");
+            let item = format!("{disp}: {nome}");
+            if !componentes.contains(&item) {
+                componentes.push(item);
+            }
+        } else if let Some(x) = m.strip_prefix("Driver da Pico declara interface: ") {
+            if !interfaces.iter().any(|i| i == x) {
+                interfaces.push(x.to_string());
+            }
+        }
+        if m.contains("nenhum frame passou pelo proxy") {
+            sem_frames = true;
+        }
         if m.contains("TrackedDeviceAdded") && m.contains("class=HMD") {
             hmd = true;
         } else if m.contains("embrulhando IVRDriverDirectModeComponent") {
@@ -509,6 +533,7 @@ pub fn ler_log(texto: &str) -> Value {
         "t": linhas.last().map(|l| l.0).unwrap_or(0.0),
         "hmd": hmd, "video": video, "depth": depth, "motionSmoothing": motion, "render": render,
         "avisos": avisos, "stats": stats, "framegen": framegen,
+        "componentes": componentes, "interfaces": interfaces, "semFrames": sem_frames,
         "linhas": linhas[fim..].iter().map(|(t, m)| format!("{t:9.3}  {m}")).collect::<Vec<_>>(),
     })
 }
@@ -771,6 +796,9 @@ mod testes {
 \n===== nova sessao (pid 22) log=C:/x/ghostframe.log =====\n\
 [    22     0.010] Provider::Init -> 0\n\
 [    22     0.020] Host::TrackedDeviceAdded serial=PA7 class=HMD\n\
+[    22     0.025] Device(HMD)::GetComponent(\"IVRDriverDirectModeComponent_009\") -> IMPLEMENTADO\n\
+[    22     0.026] Device(HMD)::GetComponent(\"IVRCameraComponent_003\") -> null\n\
+[    22     0.027] Driver da Pico declara interface: IVRServerDriverHost_006\n\
 [    22     0.030]   -> embrulhando IVRDriverDirectModeComponent\n\
 [    22     0.040] Host::SetRecommendedRenderTargetSize dev=0 2160x2160\n\
 [    22     0.050] DirectMode::SubmitLayer #0 eye=0 tex=0x1 depth=0x0 bounds=[0 0 1 1]\n\
@@ -790,6 +818,9 @@ mod testes {
         assert_eq!(r["render"], "2160x2160");
         assert_eq!(r["stats"]["DirectMode::Present"], json!([[2.0, 71.9, 13.91, 12.0, 20.5]]));
         assert_eq!(r["avisos"].as_array().unwrap().len(), 2);
+        assert_eq!(r["componentes"], json!(["HMD: IVRDriverDirectModeComponent_009"]));
+        assert_eq!(r["interfaces"], json!(["IVRServerDriverHost_006"]));
+        assert_eq!(r["semFrames"], false);
         assert_eq!(r["framegen"]["estado"], "pronto");
         assert_eq!(r["framegen"]["gerados"], 44.5);
         assert_eq!(r["framegen"]["trava"], 1.0);

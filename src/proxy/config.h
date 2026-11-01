@@ -19,6 +19,8 @@ struct EstatFG {
     std::atomic<uint32_t> reais{0}, gerados{0}, falhas{0};
     std::atomic<uint32_t> trava{0};  // framesToThrottle visto no último PostPresent
     std::atomic<float> msGpu{-1.0f};
+    // Diagnóstico: headset mandando poses sem nenhum frame passar pelo proxy.
+    std::atomic<uint64_t> presents{0}, poses{0};
     std::atomic<int> estado{FG_DESLIGADO};
 };
 extern EstatFG g_estatFG;

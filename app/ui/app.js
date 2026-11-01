@@ -145,7 +145,7 @@ function preencherConfig() {
 
 // ---------- SteamVR ao vivo (ou steamvr.vrsettings com ele fechado) ----------
 const vrSet = (chave, valor) => chamar("vr_set", { chave, valor });
-$("#jogo").onchange = (ev) => salvar({ "app.jogo": ev.target.value });
+$("#jogo").onchange = (ev) => salvar({ "app.jogo_fixo": ev.target.value });
 $$("#trava button").forEach((b) => (b.onclick = () => vrSet("trava", +b.dataset.valor)));
 $("#ss-manual").onchange = (ev) => vrSet("supersampleManual", ev.target.checked);
 $("#ms").onchange = (ev) => vrSet("motionSmoothing", ev.target.checked);
@@ -334,7 +334,9 @@ function render(e) {
     const [c, rotulo] = suporte(e.alvo.suporte);
     status("driver", c, e.alvo.suporte === "alvo" ? e.alvo.rotulo : `${e.alvo.rotulo} · ${rotulo}`);
   }
-  status("proxy", ...(e.alvo ? PROXY[estado] || ["alerta", estado] : ["erro", "sem alvo"]));
+  // Instalado mas sem nenhum frame passando: o driver usa outro caminho de vídeo.
+  const semFrames = estado === "instalado" && !!vivo?.semFrames && !presentComp.length;
+  status("proxy", ...(!e.alvo ? ["erro", "sem alvo"] : semFrames ? ["alerta", "instalado, sem frames"] : PROXY[estado] || ["alerta", estado]));
   const fpsAgora = present.at(-1)?.[1];
   texto($("#status-curto"), !aberto ? "SteamVR fechado"
     : fpsAgora != null && vivo ? `${fmt(fpsAgora)} fps no headset`
@@ -369,7 +371,8 @@ function render(e) {
   texto($("#fg-motivo"), framegenDisponivel ? a?.motivo || "" : ""); // sem frame gen o aviso já explica
   const fgv = vivo?.framegen;
   $("#fg-vivo").hidden = !(framegenDisponivel && config["framegen.ativo"] === "1");
-  texto($("#fg-estado"), !fgv ? "--" : { pronto: "ativo", esperando: "esperando", falhou: "falhou", desligado: "desligado" }[fgv.estado] || fgv.estado);
+  texto($("#fg-estado"), semFrames ? "sem frames" : !fgv ? "--" : { pronto: "ativo", esperando: "esperando", falhou: "falhou", desligado: "desligado" }[fgv.estado] || fgv.estado);
+  texto($("#fg-motivo"), semFrames ? "O driver do headset não está passando frames pelo proxy. Veja o resumo na aba Log e mande o relatório." : $("#fg-motivo").textContent);
   texto($("#fg-gerados"), fgv?.gerados != null ? `${fmt(fgv.gerados)}/s` : "--");
   texto($("#fg-gpu"), fgv?.gpuMs >= 0 ? `${fmt(fgv.gpuMs, 1)} ms` : "--");
 
@@ -380,9 +383,13 @@ function render(e) {
   classe($("#vr-fonte"), "tag " + fonte[0]);
   texto($("#vr-fonte"), fonte[1]);
 
-  html($("#jogo"), (e.jogos || []).map((j) =>
-    `<option value="${esc(j.chave)}"${j.chave === config["app.jogo"] ? " selected" : ""}>${esc(j.nome)}</option>`).join(""));
-  $("#jogo").disabled = !e.jogos?.length;
+  // Primeira opção: o jogo aberto agora (padrão); as outras fixam um jogo.
+  const aberto_ = vr?.jogo;
+  html($("#jogo"),
+    `<option value=""${config["app.jogo_fixo"] ? "" : " selected"}>Jogo aberto: ${aberto_ ? esc(aberto_.nome || aberto_.chave) : "nenhum agora"}</option>` +
+    (e.jogos || []).map((j) =>
+      `<option value="${esc(j.chave)}"${j.chave === config["app.jogo_fixo"] ? " selected" : ""}>${esc(j.nome)}</option>`).join(""));
+  $("#jogo").disabled = false;
 
   // Com o frame gen ligado, a trava é dele (Auto decide; Manual segue o multiplicador).
   const doFG = framegenDisponivel && config["framegen.ativo"] === "1";
@@ -411,12 +418,18 @@ function render(e) {
   texto($("#hud-erro"), erro || "");
 
   // ----- instalação -----
+  // Marcado = o que o backend diz que está em uso (não o texto do ini), e "em uso" aparece
+  // também no modo automático, para saber qual driver ele achou.
+  const mesmo = (a, b) => !!a && !!b && a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
   html($("#drivers"),
-    `<label><input type="radio" name="alvo" value=""${config["app.alvo"] ? "" : " checked"}><b>Automático</b>` +
+    `<label><input type="radio" name="alvo" value=""${e.alvoAuto ? " checked" : ""}><b>Automático</b>` +
     `<small>${e.alvoAuto ? (e.alvo ? `usando ${esc(e.alvo.rotulo)}` : "nenhum driver de headset encontrado") : ""}</small></label>` +
-    e.drivers.map((dr) => `<label><input type="radio" name="alvo" value="${esc(dr.raiz)}"${config["app.alvo"] === dr.raiz ? " checked" : ""}>
-      <b>${esc(dr.rotulo)}</b>${tag(suporte(dr.suporte)[1], suporte(dr.suporte)[0])}${dr.embutido ? tag("SteamVR", "") : ""}
-      <small>${esc(dr.raiz)}</small></label>`).join("") +
+    e.drivers.map((dr) => {
+      const emUso = mesmo(dr.raiz, e.alvo?.raiz);
+      return `<label><input type="radio" name="alvo" value="${esc(dr.raiz)}"${emUso && !e.alvoAuto ? " checked" : ""}>
+      <b>${esc(dr.rotulo)}</b>${tag(suporte(dr.suporte)[1], suporte(dr.suporte)[0])}${dr.embutido ? tag("SteamVR", "") : ""}${emUso ? tag("em uso", "ok") : ""}
+      <small>${esc(dr.raiz)}</small></label>`;
+    }).join("") +
     (e.drivers.length ? "" : `<p class="nota">Nenhum driver de headset encontrado. Abra o programa do headset e o SteamVR uma vez, ou cole a pasta do driver abaixo.</p>`));
 
   texto($("#alvo-uso"), e.alvo ? `Em uso: ${e.alvo.rotulo} · ${e.alvo.dll}` : "");
@@ -439,7 +452,10 @@ function render(e) {
   texto($("#log-caminho"), e.log?.caminho || "");
   $("#btn-pasta-log").disabled = !e.log;
   const item = (k, v) => `<div><dt>${k}</dt><dd>${esc(v ?? "--")}</dd></div>`;
-  html($("#sessao"), d ? item("Vídeo", d.video) + item("Depth", d.depth == null ? null : d.depth ? "sim" : "não")
+  html($("#sessao"), d ? item("Vídeo", d.video || (d.semFrames ? "nenhum frame passa pelo proxy" : null))
+    + item("Componentes", d.componentes?.length ? d.componentes.join(", ") : null)
+    + item("Interfaces", d.interfaces?.length ? d.interfaces.join(", ") : null)
+    + item("Depth", d.depth == null ? null : d.depth ? "sim" : "não")
     + item("Motion smoothing", d.motionSmoothing) : "");
   html($("#avisos"), (d?.avisos || []).map((x) => `<li>${esc(x.trim())}</li>`).join(""));
   if (abaAtiva("log") && d?.linhas) {

@@ -72,12 +72,21 @@ void LerOpcoes() {
 
 void Laco() {
     uint32_t reais0 = 0, gerados0 = 0;
+    int semFrames = 0; // segundos com o headset ativo e nenhum Present no proxy
+    bool avisou = false;
     for (int tick = 0;; ++tick) {
         {
             std::unique_lock<std::mutex> lock(g_mutex);
             if (g_cv.wait_for(lock, std::chrono::seconds(1), [] { return g_parar; })) return;
         }
         LerOpcoes();
+
+        if (g_estatFG.presents.load() == 0 && g_estatFG.poses.load() > 0) ++semFrames;
+        if (semFrames >= 15 && !avisou) {
+            avisou = true;
+            GF_LOG("!! headset ativo há 15 s e nenhum frame passou pelo proxy: o driver usa outro "
+                   "caminho de vídeo (veja os GetComponent e 'declara interface' no começo da sessão)");
+        }
         bool fg = g_opcoes.framegen.load();
 
         // Estatísticas a cada 2 s, só com algo para contar.
