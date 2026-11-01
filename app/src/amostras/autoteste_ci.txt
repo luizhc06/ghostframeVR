@@ -1,0 +1,177 @@
+adaptador padrão: Microsoft Basic Render Driver (vendor 0x1414, device 0x008c)
+== a) frame gen desligado ==
+a) 20 Presents do compositor, 20 no driver, 20 intactos
+== b) frame gen ligado, meia taxa, sem trava ==
+b) motor pronto em 1.3 s
+b) reais intactos 60 de 60; repetidos trocados pelo gerado 57 de 60 (95%), os outros 3 passaram intactos
+b) quadrado no gerado: medido +2.49 px, referência em CPU +2.49 px (ideal sem bordas +4), erro mediano 0.00, máx 0.00, 55 de 55 a até 1 px
+== c) trava 1 (PostPresent com nFramesToThrottle = 1) ==
+c) 60 frames do compositor: 60 com 2 Presents no driver, 60 reais intactos, 56 extras gerados (93%); PostPresents no driver: 140 em 70 frames
+c) quadrado no gerado: medido +2.49 px, referência em CPU +2.49 px (ideal sem bordas +4), erro mediano 0.00, máx 0.00, 55 de 55 a até 1 px
+---- C:\\Temp\\gf\ghostframe.log (fim desta execução) ----
+===== nova sessao (pid 5488) log=C:\\Temp\\gf/ghostframe.log =====
+[  5488     0.000] ghostframe proxy iniciado (recursos: framegen). DLL própria: C:\\Temp\\gf\driver_ghostframe.dll
+[  5488     0.000] Carregando driver real: C:\\Temp\\gf\driver_ghostframe_real.dll
+[  5488     0.001] HmdDriverFactory("IServerTrackedDeviceProvider_004") -> ok
+[  5488     0.001] Context::GetGenericInterface("IVRServerDriverHost_006") -> ok
+[  5488     0.001] Host::TrackedDeviceAdded serial=PICO-FAKE-WIN class=HMD
+[  5488     0.001] DeviceWrapper criado: serial=PICO-FAKE-WIN class=HMD
+[  5488     0.001] Provider::Init -> 0
+[  5488     0.001] Device(HMD)::Activate id=0 -> 0
+[  5488     0.001] Device(HMD)::GetComponent("IVRVirtualDisplay_002") -> null
+[  5488     0.002] Device(HMD)::GetComponent("IVRDisplayComponent_002") -> IMPLEMENTADO
+[  5488     0.002]   projeção olho 0: l=-1.280 r=1.280 t=-1.280 b=1.280
+[  5488     0.002]   projeção olho 1: l=-1.280 r=1.280 t=-1.280 b=1.280
+[  5488     0.002] Device(HMD)::GetComponent("IVRDriverDirectModeComponent_008") -> IMPLEMENTADO
+[  5488     0.002]   -> embrulhando IVRDriverDirectModeComponent_008 (HMD)
+[  5488     0.006] DirectMode::CreateSwapTextureSet pid=4242 1024x256 fmt=29 samples=1 -> [0x40000a02 0x40000a42 0x40000a82] flags=0x0
+[  5488     0.007] DirectMode::SubmitLayer #0 eye=0 tex=0x40000a02 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.001 1.700 0.000)
+[  5488     0.007] DirectMode::SubmitLayer #0 eye=1 tex=0x40000a02 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.001 1.700 0.000)
+[  5488     0.007] DirectMode::Present #0 sync=0x40000b42 layers=1
+[  5488     0.008] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.037] DirectMode::SubmitLayer #1 eye=0 tex=0x40000a42 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.001 1.700 0.000)
+[  5488     0.037] DirectMode::SubmitLayer #1 eye=1 tex=0x40000a42 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.001 1.700 0.000)
+[  5488     0.037] DirectMode::Present #1 sync=0x40000b42 layers=1
+[  5488     0.038] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.067] DirectMode::SubmitLayer #2 eye=0 tex=0x40000a82 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.002 1.700 0.000)
+[  5488     0.067] DirectMode::SubmitLayer #2 eye=1 tex=0x40000a82 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.002 1.700 0.000)
+[  5488     0.067] DirectMode::Present #2 sync=0x40000b42 layers=1
+[  5488     0.068] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.097] DirectMode::SubmitLayer #3 eye=0 tex=0x40000a02 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.002 1.700 0.000)
+[  5488     0.097] DirectMode::SubmitLayer #3 eye=1 tex=0x40000a02 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.002 1.700 0.000)
+[  5488     0.097] DirectMode::Present #3 sync=0x40000b42 layers=1
+[  5488     0.131] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.131] DirectMode::SubmitLayer #4 eye=0 tex=0x40000a42 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.003 1.700 0.000)
+[  5488     0.131] DirectMode::SubmitLayer #4 eye=1 tex=0x40000a42 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.003 1.700 0.000)
+[  5488     0.131] DirectMode::Present #4 sync=0x40000b42 layers=1
+[  5488     0.132] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.161] DirectMode::SubmitLayer #5 eye=0 tex=0x40000a82 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.003 1.700 0.000)
+[  5488     0.161] DirectMode::SubmitLayer #5 eye=1 tex=0x40000a82 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.003 1.700 0.000)
+[  5488     0.161] DirectMode::Present #5 sync=0x40000b42 layers=1
+[  5488     0.162] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.192] DirectMode::SubmitLayer #6 eye=0 tex=0x40000a02 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.004 1.700 0.000)
+[  5488     0.192] DirectMode::SubmitLayer #6 eye=1 tex=0x40000a02 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.004 1.700 0.000)
+[  5488     0.192] DirectMode::Present #6 sync=0x40000b42 layers=1
+[  5488     0.193] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.222] DirectMode::SubmitLayer #7 eye=0 tex=0x40000a42 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.004 1.700 0.000)
+[  5488     0.222] DirectMode::SubmitLayer #7 eye=1 tex=0x40000a42 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.004 1.700 0.000)
+[  5488     0.222] DirectMode::Present #7 sync=0x40000b42 layers=1
+[  5488     0.223] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.252] DirectMode::SubmitLayer #8 eye=0 tex=0x40000a82 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.005 1.700 0.000)
+[  5488     0.252] DirectMode::SubmitLayer #8 eye=1 tex=0x40000a82 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.005 1.700 0.000)
+[  5488     0.252] DirectMode::Present #8 sync=0x40000b42 layers=1
+[  5488     0.252] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.282] DirectMode::SubmitLayer #9 eye=0 tex=0x40000a02 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.005 1.700 0.000)
+[  5488     0.282] DirectMode::SubmitLayer #9 eye=1 tex=0x40000a02 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.005 1.700 0.000)
+[  5488     0.282] DirectMode::Present #9 sync=0x40000b42 layers=1
+[  5488     0.283] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.312] DirectMode::SubmitLayer #10 eye=0 tex=0x40000a42 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.006 1.700 0.000)
+[  5488     0.312] DirectMode::SubmitLayer #10 eye=1 tex=0x40000a42 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.006 1.700 0.000)
+[  5488     0.312] DirectMode::Present #10 sync=0x40000b42 layers=1
+[  5488     0.313] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.342] DirectMode::SubmitLayer #11 eye=0 tex=0x40000a82 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.006 1.700 0.000)
+[  5488     0.342] DirectMode::SubmitLayer #11 eye=1 tex=0x40000a82 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.006 1.700 0.000)
+[  5488     0.342] DirectMode::Present #11 sync=0x40000b42 layers=1
+[  5488     0.343] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.372] DirectMode::SubmitLayer #12 eye=0 tex=0x40000a02 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.007 1.700 0.000)
+[  5488     0.372] DirectMode::SubmitLayer #12 eye=1 tex=0x40000a02 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.007 1.700 0.000)
+[  5488     0.372] DirectMode::Present #12 sync=0x40000b42 layers=1
+[  5488     0.373] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.402] DirectMode::SubmitLayer #13 eye=0 tex=0x40000a42 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.007 1.700 0.000)
+[  5488     0.402] DirectMode::SubmitLayer #13 eye=1 tex=0x40000a42 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.007 1.700 0.000)
+[  5488     0.402] DirectMode::Present #13 sync=0x40000b42 layers=1
+[  5488     0.403] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.432] DirectMode::SubmitLayer #14 eye=0 tex=0x40000a82 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.008 1.700 0.000)
+[  5488     0.433] DirectMode::SubmitLayer #14 eye=1 tex=0x40000a82 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.008 1.700 0.000)
+[  5488     0.433] DirectMode::Present #14 sync=0x40000b42 layers=1
+[  5488     0.433] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.463] DirectMode::SubmitLayer #15 eye=0 tex=0x40000a02 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.008 1.700 0.000)
+[  5488     0.463] DirectMode::SubmitLayer #15 eye=1 tex=0x40000a02 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.008 1.700 0.000)
+[  5488     0.463] DirectMode::Present #15 sync=0x40000b42 layers=1
+[  5488     0.463] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.492] DirectMode::SubmitLayer #16 eye=0 tex=0x40000a42 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.009 1.700 0.000)
+[  5488     0.493] DirectMode::SubmitLayer #16 eye=1 tex=0x40000a42 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.009 1.700 0.000)
+[  5488     0.493] DirectMode::Present #16 sync=0x40000b42 layers=1
+[  5488     0.493] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.522] DirectMode::SubmitLayer #17 eye=0 tex=0x40000a82 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.009 1.700 0.000)
+[  5488     0.523] DirectMode::SubmitLayer #17 eye=1 tex=0x40000a82 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.009 1.700 0.000)
+[  5488     0.523] DirectMode::Present #17 sync=0x40000b42 layers=1
+[  5488     0.523] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.553] DirectMode::SubmitLayer #18 eye=0 tex=0x40000a02 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.010 1.700 0.000)
+[  5488     0.553] DirectMode::SubmitLayer #18 eye=1 tex=0x40000a02 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.010 1.700 0.000)
+[  5488     0.553] DirectMode::Present #18 sync=0x40000b42 layers=1
+[  5488     0.553] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.583] DirectMode::SubmitLayer #19 eye=0 tex=0x40000a42 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.010 1.700 0.000)
+[  5488     0.583] DirectMode::SubmitLayer #19 eye=1 tex=0x40000a42 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.010 1.700 0.000)
+[  5488     0.583] DirectMode::Present #19 sync=0x40000b42 layers=1
+[  5488     0.584] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.614] DirectMode::SubmitLayer #20 eye=0 tex=0x40000a82 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.011 1.700 0.000)
+[  5488     0.614] DirectMode::SubmitLayer #20 eye=1 tex=0x40000a82 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.011 1.700 0.000)
+[  5488     0.614] DirectMode::Present #20 sync=0x40000b42 layers=1
+[  5488     0.615] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.644] DirectMode::SubmitLayer #21 eye=0 tex=0x40000a02 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.011 1.700 0.000)
+[  5488     0.644] DirectMode::SubmitLayer #21 eye=1 tex=0x40000a02 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.011 1.700 0.000)
+[  5488     0.644] DirectMode::Present #21 sync=0x40000b42 layers=1
+[  5488     0.668] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.674] DirectMode::SubmitLayer #22 eye=0 tex=0x40000a42 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.012 1.700 0.000)
+[  5488     0.674] DirectMode::SubmitLayer #22 eye=1 tex=0x40000a42 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.012 1.700 0.000)
+[  5488     0.674] DirectMode::Present #22 sync=0x40000b42 layers=1
+[  5488     0.675] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.704] DirectMode::SubmitLayer #23 eye=0 tex=0x40000a82 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.012 1.700 0.000)
+[  5488     0.704] DirectMode::SubmitLayer #23 eye=1 tex=0x40000a82 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.012 1.700 0.000)
+[  5488     0.704] DirectMode::Present #23 sync=0x40000b42 layers=1
+[  5488     0.705] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.734] DirectMode::SubmitLayer #24 eye=0 tex=0x40000a02 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.013 1.700 0.000)
+[  5488     0.734] DirectMode::SubmitLayer #24 eye=1 tex=0x40000a02 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.013 1.700 0.000)
+[  5488     0.734] DirectMode::Present #24 sync=0x40000b42 layers=1
+[  5488     0.735] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.764] DirectMode::SubmitLayer #25 eye=0 tex=0x40000a42 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.013 1.700 0.000)
+[  5488     0.764] DirectMode::SubmitLayer #25 eye=1 tex=0x40000a42 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.013 1.700 0.000)
+[  5488     0.764] DirectMode::Present #25 sync=0x40000b42 layers=1
+[  5488     0.765] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.795] DirectMode::SubmitLayer #26 eye=0 tex=0x40000a82 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.014 1.700 0.000)
+[  5488     0.795] DirectMode::SubmitLayer #26 eye=1 tex=0x40000a82 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.014 1.700 0.000)
+[  5488     0.795] DirectMode::Present #26 sync=0x40000b42 layers=1
+[  5488     0.795] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.825] DirectMode::SubmitLayer #27 eye=0 tex=0x40000a02 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.014 1.700 0.000)
+[  5488     0.825] DirectMode::SubmitLayer #27 eye=1 tex=0x40000a02 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.014 1.700 0.000)
+[  5488     0.825] DirectMode::Present #27 sync=0x40000b42 layers=1
+[  5488     0.825] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.854] DirectMode::SubmitLayer #28 eye=0 tex=0x40000a42 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.015 1.700 0.000)
+[  5488     0.855] DirectMode::SubmitLayer #28 eye=1 tex=0x40000a42 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.015 1.700 0.000)
+[  5488     0.855] DirectMode::Present #28 sync=0x40000b42 layers=1
+[  5488     0.855] DirectMode::PostPresent throttle=0 predict=0
+[  5488     0.885] DirectMode::SubmitLayer #29 eye=0 tex=0x40000a82 depth=0x0 bounds=[0.000 0.000 0.500 1.000] posePred=0.0000s pos=(0.015 1.700 0.000)
+[  5488     0.885] DirectMode::SubmitLayer #29 eye=1 tex=0x40000a82 depth=0x0 bounds=[0.500 0.000 1.000 1.000] posePred=0.0000s pos=(0.015 1.700 0.000)
+[  5488     0.885] DirectMode::Present #29 sync=0x40000b42 layers=1
+[  5488     0.885] DirectMode::PostPresent throttle=0 predict=0
+[  5488     1.008] FRAMEGEN ligado pelo ghostframe.ini
+[  5488     1.008] FRAMEGEN estado=desligado reais=0.0/s gerados=0.0/s falhas=0 trava=0 gpu_ms=-1.00 presents=34.0/s repetidos=0.0/s
+[  5488     1.731] FrameGen: iniciado (hardware, Microsoft Basic Render Driver, feature level 0xb100)
+[  5488     1.731] FRAMEGEN motor iniciado
+[  5488     1.762] FrameGen: abriu 0x40000b42 16x16 fmt=29 amostras=1 bind=0x28 misc=0x100
+[  5488     1.762] FrameGen: abriu 0x40000a42 1024x256 fmt=29 amostras=1 bind=0x28 misc=0x2
+[  5488     1.763] FrameGen: olho 512x256 fmt=27, luma 128x64, 16x8 blocos
+[  5488     1.763] FrameGen: olho 512x256 fmt=27, luma 128x64, 16x8 blocos
+[  5488     1.823] FrameGen: abriu 0x40000a02 1024x256 fmt=29 amostras=1 bind=0x28 misc=0x2
+[  5488     1.836] FRAMEGEN swap set de saída 1024x256 fmt=29 (um para os dois olhos)
+[  5488     1.836] FrameGen: abriu 0x40000b82 1024x256 fmt=29 amostras=1 bind=0x28 misc=0x2
+[  5488     1.883] FrameGen: abriu 0x40000a82 1024x256 fmt=29 amostras=1 bind=0x28 misc=0x2
+[  5488     1.947] FrameGen: abriu 0x40000bc2 1024x256 fmt=29 amostras=1 bind=0x28 misc=0x2
+[  5488     2.007] FrameGen: abriu 0x40000c02 1024x256 fmt=29 amostras=1 bind=0x28 misc=0x2
+[  5488     2.010] FRAMEGEN estado=pronto reais=17.0/s gerados=2.0/s falhas=0 trava=0 gpu_ms=8.55 presents=33.0/s repetidos=16.0/s
+[  5488     2.033] STATS DirectMode::Present            33.1/s  dt(ms) avg=30.24 min=28.76 max=36.77
+[  5488     3.012] FRAMEGEN estado=pronto reais=16.0/s gerados=16.0/s falhas=0 trava=0 gpu_ms=8.12 presents=33.0/s repetidos=17.0/s
+[  5488     4.012] FRAMEGEN estado=pronto reais=17.0/s gerados=16.0/s falhas=0 trava=0 gpu_ms=10.03 presents=33.0/s repetidos=16.0/s
+[  5488     4.056] STATS DirectMode::Present            33.1/s  dt(ms) avg=30.19 min=29.23 max=39.53
+[  5488     5.013] FRAMEGEN estado=pronto reais=16.0/s gerados=16.0/s falhas=0 trava=0 gpu_ms=8.10 presents=33.0/s repetidos=17.0/s
+[  5488     6.028] FRAMEGEN estado=pronto reais=17.0/s gerados=16.0/s falhas=0 trava=1 gpu_ms=8.45 presents=31.0/s repetidos=14.0/s
+[  5488     6.115] STATS DirectMode::Present            31.1/s  dt(ms) avg=32.17 min=29.12 max=60.05
+[  5488     7.030] FRAMEGEN estado=pronto reais=17.0/s gerados=15.0/s falhas=2 trava=1 gpu_ms=8.24 presents=17.0/s repetidos=0.0/s
+[  5488     8.033] FRAMEGEN estado=pronto reais=16.0/s gerados=15.0/s falhas=3 trava=1 gpu_ms=8.84 presents=16.0/s repetidos=0.0/s
+[  5488     8.157] STATS DirectMode::Present            16.7/s  dt(ms) avg=60.06 min=59.87 max=60.31
+[  5488     9.035] FRAMEGEN estado=pronto reais=17.0/s gerados=17.0/s falhas=3 trava=1 gpu_ms=8.29 presents=17.0/s repetidos=0.0/s
+[  5488    10.038] FRAMEGEN estado=pronto reais=17.0/s gerados=15.0/s falhas=5 trava=1 gpu_ms=8.19 presents=17.0/s repetidos=0.0/s
+[  5488    10.080] DirectMode::DestroySwapTextureSet 0x40000a02
+[  5488    10.080] Provider::Cleanup
+TODOS OS TESTES PASSARAM

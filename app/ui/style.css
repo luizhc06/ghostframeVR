@@ -316,3 +316,6 @@ label.ajuste { cursor: pointer; }
 .conferencia b { display: inline-block; width: 44px; font: 600 11px var(--mono); text-transform: uppercase; }
 .conferencia .ok b { color: var(--ciano); }
 .conferencia .falta b { color: var(--alerta); }
+.resultado-teste { margin-top: 8px; }
+.resultado-teste[hidden] { display: none; }
+.resultado-teste .conferencia b { width: 72px; }

@@ -13,6 +13,20 @@ fn main() {
     }
     println!("cargo:rerun-if-env-changed=GF_PROXY_DLL");
 
+    // Autoteste: o teste ponta a ponta (vrserver falso + Pico falso) vai embutido para rodar
+    // na GPU do usuário. Sem as variáveis (build local), embute vazio e o botão avisa.
+    for (var, nome) in [("GF_AUTOTESTE_EXE", "autoteste.exe"), ("GF_AUTOTESTE_PICO", "autoteste_pico.dll")] {
+        let destino = PathBuf::from(env::var("OUT_DIR").unwrap()).join(nome);
+        match env::var(var) {
+            Ok(p) => {
+                fs::copy(&p, &destino).unwrap_or_else(|e| panic!("{var}={p}: {e}"));
+                println!("cargo:rerun-if-changed={p}");
+            }
+            Err(_) => fs::write(&destino, b"").unwrap(),
+        }
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+
     // Ponte cliente OpenVR (src/vr.rs). Compila em todo alvo para o `cargo test` do
     // Linux pegar erro de C++ e de link antes do CI do Windows.
     cc::Build::new()

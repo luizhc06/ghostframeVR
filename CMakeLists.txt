@@ -82,6 +82,8 @@ if(WIN32)
     if(MSVC)
         target_compile_options(win_fake_pico PRIVATE /W4 /permissive-)
         target_compile_options(win_fake_vrserver PRIVATE /W4 /permissive-)
+        # Também vão dentro do app (autoteste no PC do usuário): CRT estático, sem redistribuível.
+        set_property(TARGET win_fake_pico win_fake_vrserver PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     endif()
     add_test(NAME proxy_e2e_d3d
         COMMAND win_fake_vrserver $<TARGET_FILE:ghostframe_proxy> $<TARGET_FILE:win_fake_pico>)

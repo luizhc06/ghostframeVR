@@ -38,6 +38,8 @@ mod win {
     use tauri::{AppHandle, Manager, RunEvent, WebviewWindowBuilder};
 
     static PROXY_DLL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/proxy.dll"));
+    static AUTOTESTE_EXE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/autoteste.exe"));
+    static AUTOTESTE_PICO: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/autoteste_pico.dll"));
     const SEM_JANELA: u32 = 0x0800_0000; // CREATE_NO_WINDOW
 
     fn local() -> PathBuf {
@@ -135,6 +137,7 @@ mod win {
         let mut r = json!({
             "versao": env!("CARGO_PKG_VERSION"),
             "dllEmbutida": !PROXY_DLL.is_empty(),
+            "autoteste": !AUTOTESTE_EXE.is_empty(),
             // O proxy instalado já gera frames (instalado mas antigo: atualizar).
             "framegenDisponivel": alvo.as_ref().is_some_and(|d| core::proxy_com_framegen(&d.dll)),
             "processos": { "steamvr": steamvr_aberto() },
@@ -525,6 +528,59 @@ mod win {
         Ok("Opções do VRChat de volta como eram.".into())
     }
 
+    /// Autoteste: o mesmo teste ponta a ponta da CI, na GPU deste PC. Um vrserver e um Pico
+    /// falsos numa pasta temporária, com o proxy de verdade: nada do SteamVR, do Pico Connect
+    /// ou do ghostframe.ini do usuário é tocado. Dura ~10 s; trava em 2 min no máximo.
+    #[tauri::command(async)]
+    fn autoteste() -> Result<Value, String> {
+        if AUTOTESTE_EXE.is_empty() || AUTOTESTE_PICO.is_empty() || PROXY_DLL.is_empty() {
+            return Err("este build do app não tem o autoteste (use o .exe da release)".into());
+        }
+        let pasta = std::env::temp_dir().join(format!("ghostframe-autoteste-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&pasta);
+        fs::create_dir_all(&pasta).map_err(|e| e.to_string())?;
+        let r = (|| {
+            // O proxy carrega "<nome dele>_real.dll" da própria pasta.
+            let (proxy, pico, exe) = (pasta.join("driver_ghostframe.dll"), pasta.join("driver_ghostframe_real.dll"), pasta.join("autoteste.exe"));
+            fs::write(&proxy, PROXY_DLL).map_err(|e| e.to_string())?;
+            fs::write(&pico, AUTOTESTE_PICO).map_err(|e| e.to_string())?;
+            fs::write(&exe, AUTOTESTE_EXE).map_err(|e| e.to_string())?;
+            let saida_txt = pasta.join("saida.txt");
+            let arq = fs::File::create(&saida_txt).map_err(|e| e.to_string())?;
+            let mut filho = Command::new(&exe)
+                .arg(&proxy)
+                .arg(&pico)
+                .current_dir(&pasta)
+                .stdout(arq.try_clone().map_err(|e| e.to_string())?)
+                .stderr(arq)
+                .creation_flags(SEM_JANELA)
+                .spawn()
+                .map_err(|e| format!("não consegui rodar o autoteste: {e}"))?;
+            let t0 = std::time::Instant::now();
+            // O teste cria %TEMP%\ghostframe_e2e_<pid> para o ini dele: some junto.
+            let pasta_ini = std::env::temp_dir().join(format!("ghostframe_e2e_{}", filho.id()));
+            let codigo = loop {
+                if let Some(st) = filho.try_wait().map_err(|e| e.to_string())? {
+                    break st.code();
+                }
+                if t0.elapsed() > Duration::from_secs(120) {
+                    let _ = filho.kill();
+                    let _ = filho.wait();
+                    return Err("o autoteste passou de 2 minutos e foi parado".into());
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            };
+            let _ = fs::remove_dir_all(&pasta_ini);
+            let saida = String::from_utf8_lossy(&fs::read(&saida_txt).unwrap_or_default()).into_owned();
+            let mut r = core::ler_autoteste(&saida, codigo);
+            r["codigo"] = json!(codigo);
+            r["segundos"] = json!((t0.elapsed().as_secs_f64() * 10.0).round() / 10.0);
+            Ok(r)
+        })();
+        let _ = fs::remove_dir_all(&pasta);
+        r
+    }
+
     /// Abre Configurações → Sistema → Tela → Gráficos do Windows (o app não muda sozinho).
     #[tauri::command]
     fn abrir_graficos_windows() {
@@ -561,7 +617,7 @@ mod win {
             .invoke_handler(tauri::generate_handler![
                 estado, salvar_config, escolher_alvo, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta,
                 vrchat_particulas, abrir_graficos_windows, vrchat_ajustar, vrchat_restaurar, plano_energia_usar,
-                vrchat_opcoes_steam
+                vrchat_opcoes_steam, autoteste
             ])
             .setup(move |app| {
                 let painel = Arc::new(Mutex::new(companion::Painel::default()));

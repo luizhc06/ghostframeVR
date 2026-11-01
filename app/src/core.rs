@@ -110,6 +110,40 @@ fn erro(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::Other, msg.into())
 }
 
+/// Resultado do autoteste (a saída do teste ponta a ponta rodado na GPU do usuário).
+pub fn ler_autoteste(saida: &str, codigo: Option<i32>) -> Value {
+    let linhas: Vec<&str> = saida.lines().map(str::trim).collect();
+    let depois = |l: &str, p: &str| l.find(p).map(|i| l[i + p.len()..].to_string());
+    let skip = linhas.iter().find_map(|l| l.strip_prefix("SKIP: ")).map(str::to_string);
+    let gpu = linhas
+        .iter()
+        .find_map(|l| depois(l, "FrameGen: iniciado (hardware, ").and_then(|r| r.rsplit_once(", feature").map(|(g, _)| g.to_string())))
+        .or_else(|| linhas.iter().find_map(|l| l.strip_prefix("adaptador padrão: ").map(|r| r.split(" (vendor").next().unwrap_or(r).to_string())));
+    let resumo: Vec<&str> = linhas.iter().copied().filter(|l| ["a) ", "b) ", "c) "].iter().any(|p| l.starts_with(p))).collect();
+    let falhas: Vec<&str> = linhas.iter().copied().filter(|l| l.starts_with("FALHOU:")).collect();
+    let ms: Vec<f64> = linhas
+        .iter()
+        .filter(|l| l.contains("FRAMEGEN estado=pronto"))
+        .filter_map(|l| depois(l, "gpu_ms=")?.split_whitespace().next()?.parse::<f64>().ok())
+        .filter(|x| *x > 0.0)
+        .collect();
+    // "(95%)" logo depois de "trocados pelo gerado" (b) e de "extras gerados" (c).
+    let pct = |marca: &str| {
+        linhas.iter().find_map(|l| depois(l, marca)?.split('(').nth(1)?.split('%').next()?.trim().parse::<f64>().ok())
+    };
+    json!({
+        "passou": skip.is_none() && codigo == Some(0) && linhas.iter().any(|l| l.contains("TODOS OS TESTES PASSARAM")),
+        "skip": skip,
+        "gpu": gpu,
+        "resumo": resumo,
+        "falhas": falhas,
+        "gpuMsMedia": (!ms.is_empty()).then(|| ms.iter().sum::<f64>() / ms.len() as f64),
+        "gpuMsMax": ms.iter().cloned().fold(None, |m: Option<f64>, x| Some(m.map_or(x, |m| m.max(x)))),
+        "pctRepetidos": pct("repetidos trocados pelo gerado"),
+        "pctTrava": pct(" reais intactos, "),
+    })
+}
+
 /// "0.2.10-alpha" > "0.2.9-alpha": compara os números, não o texto.
 pub fn versao_maior(a: &str, b: &str) -> bool {
     let n = |v: &str| v.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).map(|x| x.parse::<u64>().unwrap_or(0)).take(3).collect::<Vec<_>>();
@@ -798,6 +832,28 @@ pub fn gravar_atomico(arquivo: &Path, conteudo: &str) -> io::Result<()> {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn le_o_resultado_do_autoteste() {
+        // Saída real do teste ponta a ponta na CI (adaptador de software).
+        let r = ler_autoteste(include_str!("amostras/autoteste_ci.txt"), Some(0));
+        assert_eq!(r["passou"], true);
+        assert_eq!(r["gpu"], "Microsoft Basic Render Driver");
+        assert_eq!(r["pctRepetidos"], 95.0);
+        assert_eq!(r["pctTrava"], 93.0);
+        assert_eq!(r["resumo"].as_array().unwrap().len(), 6);
+        let m = r["gpuMsMedia"].as_f64().unwrap();
+        assert!((8.0..9.5).contains(&m), "{m}");
+        assert_eq!(r["gpuMsMax"], 10.03);
+        // Código de saída diferente de 0 ou SKIP: não passou.
+        assert_eq!(ler_autoteste(include_str!("amostras/autoteste_ci.txt"), Some(1))["passou"], false);
+        let s = ler_autoteste("SKIP: sem adaptador de hardware que compartilhe texturas\n", Some(77));
+        assert_eq!(s["passou"], false);
+        assert_eq!(s["skip"], "sem adaptador de hardware que compartilhe texturas");
+        assert!(s["gpuMsMedia"].is_null());
+        let f = ler_autoteste("FALHOU: trocados * 10 >= repetidos * 8 (linha 551)\n1 FALHA(S)\n", Some(1));
+        assert_eq!(f["falhas"].as_array().unwrap().len(), 1);
+    }
 
     #[test]
     fn compara_versoes() {
