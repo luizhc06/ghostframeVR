@@ -139,6 +139,19 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Embrulha os componentes de vídeo (VirtualDisplay / DirectMode) que um driver devolve,
+// venha o pedido do HMD, de um DisplayRedirect ou do plugin do compositor.
+class Componentes {
+public:
+    void *Embrulhar(const char *quem, const char *nome, void *comp);
+
+private:
+    std::mutex m_mutex;
+    std::unique_ptr<VirtualDisplayWrapper> m_virtualDisplay;
+    std::unique_ptr<DirectModeWrapper> m_directMode;
+};
+
+// ---------------------------------------------------------------------------
 class DeviceWrapper final : public vr::ITrackedDeviceServerDriver {
 public:
     DeviceWrapper(vr::ITrackedDeviceServerDriver *real, const char *serial, vr::ETrackedDeviceClass cls);
@@ -153,9 +166,24 @@ public:
 private:
     vr::ITrackedDeviceServerDriver *m_real;
     vr::ETrackedDeviceClass m_class;
-    std::mutex m_mutex;
-    std::unique_ptr<VirtualDisplayWrapper> m_virtualDisplay;
-    std::unique_ptr<DirectModeWrapper> m_directMode;
+    Componentes m_comp;
+};
+
+// ---------------------------------------------------------------------------
+// Drivers que entregam o vídeo dentro do vrcompositor.exe (o SteamVR carrega a mesma
+// DLL lá e pede IVRCompositorPluginProvider): o DirectMode deles vem por aqui.
+class CompositorPluginWrapper final : public vr::IVRCompositorPluginProvider {
+public:
+    explicit CompositorPluginWrapper(vr::IVRCompositorPluginProvider *real) : m_real(real) {}
+
+    vr::EVRInitError Init(vr::IVRDriverContext *pDriverContext) override;
+    void Cleanup() override;
+    const char *const *GetInterfaceVersions() override;
+    void *GetComponent(const char *pchComponentNameAndVersion) override;
+
+private:
+    vr::IVRCompositorPluginProvider *m_real;
+    Componentes m_comp;
 };
 
 // ---------------------------------------------------------------------------

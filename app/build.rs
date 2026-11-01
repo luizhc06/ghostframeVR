@@ -22,6 +22,9 @@ fn main() {
         .flag_if_supported("-Wno-unused-variable") // constantes de versão do openvr.h
         .compile("gf_openvr");
     println!("cargo:rerun-if-changed=native/gf_openvr.cpp");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo:rustc-link-lib=d3d11"); // textura do HUD (gf_overlay_imagem)
+    }
     println!("cargo:rerun-if-changed=../third_party/openvr/openvr.h");
 
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {

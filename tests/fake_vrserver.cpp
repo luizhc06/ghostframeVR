@@ -85,6 +85,17 @@ int main(int argc, char **argv) {
     dm->GetFrameTiming(&ft);
     CHECK(ft.m_nNumFramePresents == 7);
 
+    // Plugin do compositor (vídeo dentro do vrcompositor.exe): o DirectMode dele também é embrulhado.
+    auto *plugin = (vr::IVRCompositorPluginProvider *)factory(vr::IVRCompositorPluginProvider_Version, &rc);
+    CHECK(plugin != nullptr && rc == 0);
+    if (!plugin) return 1;
+    CHECK(plugin->Init(&g_ctx) == vr::VRInitError_None);
+    auto *dmPlugin = (vr::IVRDriverDirectModeComponent *)plugin->GetComponent(vr::IVRDriverDirectModeComponent_Version);
+    CHECK(dmPlugin != nullptr);
+    if (!dmPlugin) return 1;
+    for (int i = 0; i < 10; ++i) { dmPlugin->SubmitLayer(eyes); dmPlugin->Present(0); }
+    plugin->Cleanup();
+
     // Confere os contadores do driver falso: tudo chegou do outro lado?
     int *counters = nullptr;
     // O driver real foi carregado pelo proxy com RTLD_LOCAL; pegamos pelo nome.
@@ -93,14 +104,16 @@ int main(int argc, char **argv) {
     CHECK(counters != nullptr);
     if (counters) {
         CHECK(counters[0] == 100); // Present VD
-        CHECK(counters[1] == 50);  // Present DM
-        CHECK(counters[2] == 50);  // SubmitLayer
+        CHECK(counters[1] == 60);  // Present DM (50 do HMD + 10 do plugin)
+        CHECK(counters[2] == 60);  // SubmitLayer
         CHECK(counters[3] == 1);   // Activate
         CHECK(counters[4] == 1);   // RunFrame
         CHECK(counters[5] == 1);   // Init
         CHECK(counters[6] == 1);   // CreateSwapTextureSet
         CHECK(counters[7] == 1);   // GetFrameTiming
     }
+    void **realPlugin = realLib ? (void **)dlsym(realLib, "g_fakePluginDM") : nullptr;
+    CHECK(realPlugin && *realPlugin != (void *)dmPlugin); // devolveu o wrapper
     prov->Cleanup();
 
     std::printf(g_fail ? "\n%d FALHA(S)\n" : "\nTODOS OS TESTES PASSARAM\n", g_fail);

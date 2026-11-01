@@ -79,6 +79,8 @@ struct Sessao {
     sem_entrega: Option<Instant>,
     /// Travou sem entregar frames: não trava de novo até o frame gen ser religado.
     fg_bloqueado: bool,
+    /// Resumo da última imagem enviada ao HUD: só reenvia quando muda.
+    hud_hash: u64,
 }
 
 /// Trava que o app pôs para o frame gen, gravada em disco: o SteamVR persiste a trava
@@ -183,6 +185,7 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
                         ligado_desde: None,
                         sem_entrega: None,
                         fg_bloqueado: false,
+                        hud_hash: 0,
                     });
                     painel.lock().unwrap_or_else(|e| e.into_inner()).erro = None;
                 }
@@ -377,7 +380,10 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
         let opacidade = num(&cfg, "hud.opacidade", 90.0) / 100.0;
         if hud_ativo && s.hud.is_none() {
             match s.vr.overlay(CHAVE_HUD, "ghostframeVR") {
-                Ok(o) => s.hud = Some(o),
+                Ok(o) => {
+                    s.hud = Some(o);
+                    s.hud_hash = 0;
+                }
                 Err(e) => erro = Some(format!("HUD: {e}")),
             }
             s.pos_hud.clear();
@@ -389,8 +395,13 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
         if let Some(o) = &s.hud {
             if hud_ativo {
                 let (px, w, h) = desenho.desenhar(&metricas, &itens(&cfg));
-                if let Err(e) = o.imagem(&s.vr, px, w, h) {
-                    erro = Some(format!("HUD: {e}"));
+                // FNV-1a: barato para ~0,5 MB por segundo, e evita reenviar a mesma imagem.
+                let hash = px.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x100_0000_01b3));
+                if hash != s.hud_hash {
+                    match o.imagem(&s.vr, px, w, h) {
+                        Ok(()) => s.hud_hash = hash,
+                        Err(e) => erro = Some(format!("HUD: {e}")),
+                    }
                 }
                 let pos = ["hud.ancora", "hud.tamanho", "hud.opacidade", "hud.x", "hud.y", "hud.z", "hud.olhar"]
                     .map(|k| texto(&cfg, k))

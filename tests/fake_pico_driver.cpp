@@ -66,10 +66,29 @@ public:
 
 FakeProvider g_provider;
 
+// Como drivers que entregam o vídeo dentro do vrcompositor.exe.
+class FakePlugin : public vr::IVRCompositorPluginProvider {
+public:
+    vr::EVRInitError Init(vr::IVRDriverContext *) override { return vr::VRInitError_None; }
+    void Cleanup() override {}
+    const char *const *GetInterfaceVersions() override { return vr::k_InterfaceVersions; }
+    void *GetComponent(const char *n) override {
+        return std::strcmp(n, vr::IVRDriverDirectModeComponent_Version) ? nullptr : &dm;
+    }
+    FakeDM dm;
+};
+
+FakePlugin g_plugin;
+
 } // namespace
+
+// O teste confere que o proxy devolveu um wrapper, não este objeto.
+extern "C" __attribute__((visibility("default"))) void *g_fakePluginDM;
+void *g_fakePluginDM = &g_plugin.dm;
 
 extern "C" __attribute__((visibility("default"))) void *HmdDriverFactory(const char *name, int *rc) {
     if (!std::strcmp(name, vr::IServerTrackedDeviceProvider_Version)) { *rc = 0; return &g_provider; }
+    if (!std::strcmp(name, vr::IVRCompositorPluginProvider_Version)) { *rc = 0; return &g_plugin; }
     *rc = vr::VRInitError_Init_InterfaceNotFound;
     return nullptr;
 }

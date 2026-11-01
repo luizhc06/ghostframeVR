@@ -26,6 +26,7 @@ using FactoryFn = void *(*)(const char *, int *);
 std::once_flag g_loadOnce;
 FactoryFn g_realFactory = nullptr;
 std::unique_ptr<gf::ProviderWrapper> g_provider;
+std::unique_ptr<gf::CompositorPluginWrapper> g_plugin;
 
 void LoadReal() {
     gf::LogInit();
@@ -61,9 +62,15 @@ GF_EXPORT void *HmdDriverFactory(const char *pInterfaceName, int *pReturnCode) {
             g_provider = std::make_unique<gf::ProviderWrapper>(static_cast<vr::IServerTrackedDeviceProvider *>(real));
         return g_provider.get();
     }
-    if (std::strncmp(pInterfaceName, "IServerTrackedDeviceProvider_", 29) == 0) {
-        GF_LOG("!! SteamVR pediu %s, conhecemos %s — modo passthrough total",
-                pInterfaceName, vr::IServerTrackedDeviceProvider_Version);
+    if (std::strcmp(pInterfaceName, vr::IVRCompositorPluginProvider_Version) == 0) {
+        // Este processo é o vrcompositor.exe: o vídeo do driver passa por aqui.
+        if (!g_plugin)
+            g_plugin = std::make_unique<gf::CompositorPluginWrapper>(static_cast<vr::IVRCompositorPluginProvider *>(real));
+        return g_plugin.get();
+    }
+    if (std::strncmp(pInterfaceName, "IServerTrackedDeviceProvider_", 29) == 0 ||
+        std::strncmp(pInterfaceName, "IVRCompositorPluginProvider_", 28) == 0) {
+        GF_LOG("!! SteamVR pediu %s, versão que não conhecemos: modo passthrough total", pInterfaceName);
     }
     // Watchdog e outros: repassamos sem tocar.
     return real;

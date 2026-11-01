@@ -13,6 +13,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <d3d11.h>
 #include <tlhelp32.h>
 #include <wchar.h>
 typedef wchar_t gf_char; // caminho em UTF-16: pasta do usuário pode ter acento
@@ -77,7 +78,62 @@ struct GfVr {
     vr::IVROverlay *overlay;
     vr::IVRCompositor *compositor;
     vr::IVRApplications *apps;
+#ifdef _WIN32
+    // HUD por textura própria, alternando duas: o SetOverlayRaw troca a imagem passando
+    // por um quadro vazio, e o HUD pisca a cada atualização.
+    ID3D11Device *dev = nullptr;
+    ID3D11DeviceContext *ctx = nullptr;
+    ID3D11Texture2D *tex[2] = {};
+    uint32_t tw = 0, th = 0;
+    int prox = 0;
+    bool semD3D = false; // falhou uma vez: fica no SetOverlayRaw
+#endif
 };
+
+#ifdef _WIN32
+static void SoltarTexturas(GfVr *v) {
+    for (ID3D11Texture2D *&t : v->tex) {
+        if (t) t->Release();
+        t = nullptr;
+    }
+    v->tw = v->th = 0;
+}
+
+static bool TexturaHud(GfVr *v, const void *rgba, uint32_t w, uint32_t h, vr::Texture_t &out) {
+    if (v->semD3D) return false;
+    if (!v->dev && FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0,
+                                            D3D11_SDK_VERSION, &v->dev, nullptr, &v->ctx))) {
+        v->semD3D = true;
+        return false;
+    }
+    if (v->tw != w || v->th != h) {
+        SoltarTexturas(v);
+        D3D11_TEXTURE2D_DESC d{};
+        d.Width = w;
+        d.Height = h;
+        d.MipLevels = 1;
+        d.ArraySize = 1;
+        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        d.SampleDesc.Count = 1;
+        d.Usage = D3D11_USAGE_DEFAULT;
+        d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        for (ID3D11Texture2D *&t : v->tex) {
+            if (FAILED(v->dev->CreateTexture2D(&d, nullptr, &t))) {
+                SoltarTexturas(v);
+                v->semD3D = true;
+                return false;
+            }
+        }
+        v->tw = w;
+        v->th = h;
+    }
+    ID3D11Texture2D *t = v->tex[v->prox];
+    v->ctx->UpdateSubresource(t, 0, nullptr, rgba, w * 4, 0);
+    v->ctx->Flush();
+    out = {t, vr::TextureType_DirectX, vr::ColorSpace_Auto};
+    return true;
+}
+#endif
 
 // Só os campos de Compositor_FrameTiming que o vr.rs usa, num layout fixo
 // (o struct original muda de empacotamento entre Windows e Linux).
@@ -137,6 +193,11 @@ GfVr *gf_vr_conectar(const gf_char *dll, char *msg, uint32_t tam) {
 }
 
 void gf_vr_desconectar(GfVr *v) {
+#ifdef _WIN32
+    SoltarTexturas(v);
+    if (v->ctx) v->ctx->Release();
+    if (v->dev) v->dev->Release();
+#endif
     v->core->Cleanup();
     // Descarrega como o openvr_api: DLL presa no processo travaria a atualização do SteamVR.
     Descarregar(v->lib);
@@ -237,6 +298,17 @@ int32_t gf_overlay_criar(GfVr *v, const char *chave, const char *nome, uint64_t 
 }
 
 int32_t gf_overlay_imagem(GfVr *v, uint64_t h, const void *rgba, uint32_t largura, uint32_t altura) {
+#ifdef _WIN32
+    vr::Texture_t t;
+    if (TexturaHud(v, rgba, largura, altura, t)) {
+        vr::EVROverlayError e = v->overlay->SetOverlayTexture(h, &t);
+        if (e == vr::VROverlayError_None) {
+            v->prox ^= 1; // a próxima vai na outra textura: o compositor ainda lê esta
+            return e;
+        }
+        v->semD3D = true; // o runtime recusou a textura: volta ao caminho simples
+    }
+#endif
     return v->overlay->SetOverlayRaw(h, const_cast<void *>(rgba), largura, altura, 4);
 }
 

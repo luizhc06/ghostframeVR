@@ -4,6 +4,7 @@
 #include "log.h"
 #include "platform.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace gf {
@@ -80,10 +81,25 @@ namespace {
 std::atomic<double> g_periodoVsync{0.0}; // média dos intervalos entre VsyncEvent
 std::mutex g_mutexProj;
 ProjecaoOlho g_proj[2];
+std::atomic<bool> g_temProj{false};
 
 void DefinirProjecaoGlobal(int olho, float esq, float dir, float cima, float baixo) {
     std::lock_guard<std::mutex> lock(g_mutexProj);
     g_proj[olho] = {esq, dir, cima, baixo};
+    g_temProj = true;
+}
+
+// No vrcompositor.exe não há host nem HMD para perguntar o frustum: ele sai da matriz de
+// projeção que vem no SubmitLayer (mesma forma do IVRSystem::GetProjectionMatrix:
+// m00 = 2/(r-l), m02 = (r+l)/(r-l), idem em y com t/b).
+bool ProjecaoDaMatriz(const vr::HmdMatrix44_t &m, ProjecaoOlho &p) {
+    const float sx = m.m[0][0], sy = m.m[1][1];
+    if (!(std::fabs(sx) > 1e-3f && std::fabs(sy) > 1e-3f)) return false;
+    p.esq = (m.m[0][2] - 1) / sx;
+    p.dir = (m.m[0][2] + 1) / sx;
+    p.cima = (m.m[1][2] - 1) / sy;
+    p.baixo = (m.m[1][2] + 1) / sy;
+    return true;
 }
 
 ProjecaoOlho Projecao(int olho) {
@@ -443,8 +459,12 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
             m_divisor = r < 2.5 ? 2 : 3;
         }
         if (Motor()) {
-            m_fg.DefinirProjecao(0, Projecao(0));
-            m_fg.DefinirProjecao(1, Projecao(1));
+            for (int olho = 0; olho < 2; ++olho) {
+                ProjecaoOlho p = Projecao(olho);
+                if (!g_temProj && ProjecaoDaMatriz(cena[olho].mProjection, p) && g_estatFG.reais.load() <= 1)
+                    GF_LOG("FRAMEGEN projeção olho %d pela matriz: l=%.3f r=%.3f t=%.3f b=%.3f", olho, p.esq, p.dir, p.cima, p.baixo);
+                m_fg.DefinirProjecao(olho, p);
+            }
             Conjunto c{};
             bool nt = AcharConjunto(cena[0].hTexture, &c) && (c.flags & vr::VRSwapTextureFlag_Shared_NTHandle);
             vr::SharedTextureHandle_t tex[2] = {cena[0].hTexture, cena[1].hTexture};
@@ -571,25 +591,62 @@ void *DeviceWrapper::GetComponent(const char *name) {
         }
     }
 
+    return m_comp.Embrulhar(DeviceClassName(m_class), name, comp);
+}
+
+void *Componentes::Embrulhar(const char *quem, const char *name, void *comp) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (std::strcmp(name, vr::IVRVirtualDisplay_Version) == 0) {
         if (!m_virtualDisplay)
             m_virtualDisplay = std::make_unique<VirtualDisplayWrapper>(static_cast<vr::IVRVirtualDisplay *>(comp));
-        GF_LOG("  -> embrulhando IVRVirtualDisplay");
+        GF_LOG("  -> embrulhando IVRVirtualDisplay (%s)", quem);
         return m_virtualDisplay.get();
     }
     if (std::strcmp(name, vr::IVRDriverDirectModeComponent_Version) == 0) {
         if (!m_directMode)
             m_directMode = std::make_unique<DirectModeWrapper>(static_cast<vr::IVRDriverDirectModeComponent *>(comp));
-        GF_LOG("  -> embrulhando IVRDriverDirectModeComponent");
+        GF_LOG("  -> embrulhando IVRDriverDirectModeComponent (%s)", quem);
         return m_directMode.get();
     }
     if (std::strncmp(name, "IVRVirtualDisplay_", 18) == 0 ||
         std::strncmp(name, "IVRDriverDirectModeComponent_", 29) == 0) {
-        GF_LOG("  !! versão diferente da que conhecemos (%s / %s) — repassando sem embrulhar",
+        GF_LOG("  !! versão diferente da que conhecemos (%s / %s): repassando sem embrulhar",
                 vr::IVRVirtualDisplay_Version, vr::IVRDriverDirectModeComponent_Version);
     }
     return comp;
+}
+
+// ===========================================================================
+// IVRCompositorPluginProvider (roda dentro do vrcompositor.exe)
+vr::EVRInitError CompositorPluginWrapper::Init(vr::IVRDriverContext *ctx) {
+    IniciarFundo(); // este processo também precisa do ghostframe.ini e das estatísticas
+    vr::EVRInitError r = m_real->Init(ctx);
+    GF_LOG("CompositorPlugin::Init -> %d", (int)r);
+    if (r != vr::VRInitError_None) PararFundo();
+    return r;
+}
+
+void CompositorPluginWrapper::Cleanup() {
+    GF_LOG("CompositorPlugin::Cleanup");
+    PararFundo();
+    m_real->Cleanup();
+}
+
+const char *const *CompositorPluginWrapper::GetInterfaceVersions() {
+    const char *const *v = m_real->GetInterfaceVersions();
+    static bool logado = false;
+    if (!logado && v) {
+        logado = true;
+        for (const char *const *p = v; *p; ++p) GF_LOG("Plugin do compositor declara interface: %s", *p);
+    }
+    return v;
+}
+
+void *CompositorPluginWrapper::GetComponent(const char *name) {
+    void *comp = m_real->GetComponent(name);
+    GF_LOG("CompositorPlugin::GetComponent(\"%s\") -> %s", name ? name : "(null)", comp ? "IMPLEMENTADO" : "null");
+    if (!comp || !name) return comp;
+    return m_comp.Embrulhar("plugin do compositor", name, comp);
 }
 
 void DeviceWrapper::DebugRequest(const char *req, char *buf, uint32_t size) {
@@ -690,7 +747,7 @@ void *DriverContextWrapper::GetGenericInterface(const char *version, vr::EVRInit
         return m_host.get();
     }
     if (std::strncmp(version, "IVRServerDriverHost_", 20) == 0) {
-        GF_LOG("  !! driver pediu %s, conhecemos %s — sem interceptação de dispositivos",
+        GF_LOG("  !! driver pediu %s, conhecemos %s: sem interceptação de dispositivos",
                 version, vr::IVRServerDriverHost_Version);
     }
     return iface;
