@@ -1,6 +1,7 @@
 // "vrserver" falso: carrega o proxy como o SteamVR faria e exercita o caminho
 // completo (Init -> TrackedDeviceAdded -> Activate -> GetComponent -> Present).
 #include <openvr_driver.h>
+#include <openvr_driver_legado.h>
 
 #include <dlfcn.h>
 #include <cstdio>
@@ -85,6 +86,63 @@ int main(int argc, char **argv) {
     dm->GetFrameTiming(&ft);
     CHECK(ft.m_nNumFramePresents == 7);
 
+    // Como o Pico Connect de verdade: Display 002 e DirectMode 008 (SDK antigo).
+    void *realLib = dlopen(argv[2], RTLD_NOW | RTLD_NOLOAD);
+    CHECK(realLib != nullptr);
+    if (!realLib) return 1;
+    using DM8 = vr::legado::IVRDriverDirectModeComponent;
+    CHECK(g_addedHmd->GetComponent(vr::legado::IVRDisplayComponent_Version) != nullptr);
+    auto *dm8 = (DM8 *)g_addedHmd->GetComponent(vr::legado::IVRDriverDirectModeComponent_Version);
+    void **real8 = (void **)dlsym(realLib, "g_fakeDM8"), **real7 = (void **)dlsym(realLib, "g_fakeDM7");
+    int *c8 = (int *)dlsym(realLib, "g_fake8");
+    auto *ultimo = (const DM8::SubmitLayerPerEye_t *)dlsym(realLib, "g_ultimo8");
+    auto *trava = (const DM8::Throttling_t *)dlsym(realLib, "g_trava8");
+    CHECK(real8 && real7 && c8 && ultimo && trava);
+    if (!dm8 || !real8 || !real7 || !c8 || !ultimo || !trava) return 1;
+    CHECK(dm8 != *real8); // embrulhou a 008
+    // Versão que o proxy não conhece: volta o objeto do driver, sem wrapper.
+    CHECK(g_addedHmd->GetComponent("IVRDriverDirectModeComponent_007") == *real7);
+
+    DM8::SwapTextureSetDesc_t d8{1832, 1920, 29, 1};
+    DM8::SwapTextureSet_t s8{};
+    dm8->CreateSwapTextureSet(4242, &d8, &s8);
+    CHECK(s8.rSharedTextureHandles[0] == 0x80 + 1832 && s8.rSharedTextureHandles[2] == 0x82);
+    CHECK(s8.unTextureFlags == vr::VRSwapTextureFlag_Shared_NTHandle);
+
+    // Jogo a meia taxa: cada pose vem duas vezes (o compositor repete o quadro). O que
+    // chega no driver tem de ser byte a byte o que o SteamVR mandou, nos dois olhos.
+    bool iguais = true;
+    for (int i = 0; i < 40; ++i) {
+        DM8::SubmitLayerPerEye_t e[2];
+        std::memset(e, 0, sizeof(e));
+        for (int olho = 0; olho < 2; ++olho) {
+            e[olho].hTexture = 0x1000 * (olho + 1) + i;
+            e[olho].hDepthTexture = 0x5000 + olho;
+            e[olho].bounds = {0.0f, 0.0f, 1.0f, 0.5f + 0.25f * olho};
+            for (int r = 0; r < 4; ++r)
+                for (int c = 0; c < 4; ++c) e[olho].mProjection.m[r][c] = float(olho * 100 + r * 4 + c);
+            for (int r = 0; r < 3; ++r)
+                for (int c = 0; c < 4; ++c) e[olho].mHmdPose.m[r][c] = float(i / 2) + 0.01f * float(r * 4 + c);
+        }
+        dm8->SubmitLayer(e);
+        dm8->Present(0x77);
+        iguais = iguais && std::memcmp(ultimo, e, sizeof(e)) == 0;
+        const DM8::Throttling_t t{1, 2};
+        dm8->PostPresent(&t);
+    }
+    CHECK(iguais);
+    CHECK(c8[2] == 40 && c8[3] == 40 && c8[4] == 40); // SubmitLayer, Present, PostPresent
+    CHECK(trava->nFramesToThrottle == 1 && trava->nAdditionalFramesToPredict == 2);
+    vr::SharedTextureHandle_t hs[2] = {s8.rSharedTextureHandles[0], s8.rSharedTextureHandles[0]};
+    uint32_t idx[2] = {9, 9};
+    dm8->GetNextSwapTextureSetIndex(hs, &idx);
+    CHECK(idx[0] == 1 && idx[1] == 2);
+    vr::DriverDirectMode_FrameTiming ft8{sizeof(ft8), 0, 0, 0, vr::VRCompositor_ReprojectionMotion_Enabled};
+    dm8->GetFrameTiming(&ft8);
+    CHECK(ft8.m_nNumFramePresents == 9 && ft8.m_nReprojectionFlags == vr::VRCompositor_ReprojectionMotion_Enabled);
+    dm8->DestroySwapTextureSet(s8.rSharedTextureHandles[0]);
+    CHECK(c8[0] == 1 && c8[1] == 1 && c8[5] == 1 && c8[6] == 1); // Create, Destroy, Timing, NextIndex
+
     // Plugin do compositor (vídeo dentro do vrcompositor.exe): o DirectMode dele também é embrulhado.
     auto *plugin = (vr::IVRCompositorPluginProvider *)factory(vr::IVRCompositorPluginProvider_Version, &rc);
     CHECK(plugin != nullptr && rc == 0);
@@ -99,8 +157,7 @@ int main(int argc, char **argv) {
     // Confere os contadores do driver falso: tudo chegou do outro lado?
     int *counters = nullptr;
     // O driver real foi carregado pelo proxy com RTLD_LOCAL; pegamos pelo nome.
-    void *realLib = dlopen(argv[2], RTLD_NOW | RTLD_NOLOAD);
-    if (realLib) counters = (int *)dlsym(realLib, "g_fakeCounters");
+    counters = (int *)dlsym(realLib, "g_fakeCounters");
     CHECK(counters != nullptr);
     if (counters) {
         CHECK(counters[0] == 100); // Present VD
@@ -112,7 +169,7 @@ int main(int argc, char **argv) {
         CHECK(counters[6] == 1);   // CreateSwapTextureSet
         CHECK(counters[7] == 1);   // GetFrameTiming
     }
-    void **realPlugin = realLib ? (void **)dlsym(realLib, "g_fakePluginDM") : nullptr;
+    void **realPlugin = (void **)dlsym(realLib, "g_fakePluginDM");
     CHECK(realPlugin && *realPlugin != (void *)dmPlugin); // devolveu o wrapper
     prov->Cleanup();
 
