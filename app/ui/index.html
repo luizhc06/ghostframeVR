@@ -44,18 +44,6 @@
       <div id="st-proxy"><span class="led"></span><h3>Proxy</h3><p>--</p></div>
     </div>
 
-    <div class="painel fg-vivo">
-      <label class="fg-liga" title="Liga e desliga na hora: o proxy relê a opção a cada segundo">
-        <span class="sw grande"><input type="checkbox" id="fg-toggle"><i></i></span>
-        <span><b>Frame gen</b><small id="fg-toggle-texto">--</small></span>
-      </label>
-      <div class="faixas leituras fg-numeros">
-        <div class="c-headset"><h3>Pegando<span>reais/s</span></h3><b id="v-reais">--</b></div>
-        <div class="c-gerados"><h3>Gerando<span>/s</span></h3><b id="v-gerados">--</b></div>
-        <div><h3>GPU<span>ms</span></h3><b id="v-gpu">--</b></div>
-      </div>
-    </div>
-
     <div class="painel faixas leituras">
       <div class="c-headset"><h3>Headset<span>fps</span></h3><b id="m-fps">--</b></div>
       <div class="c-jogo"><h3>Jogo<span>fps</span></h3><b id="m-jogo">--</b></div>
@@ -98,8 +86,9 @@
         <div id="fg-vivo" class="bloco" hidden>
           <div class="faixas leituras mini">
             <div><h3>Estado</h3><b id="fg-estado">--</b></div>
-            <div><h3>Gerados</h3><b id="fg-gerados">--</b></div>
-            <div><h3>GPU</h3><b id="fg-gpu">--</b></div>
+            <div class="c-headset"><h3>Pegando<span>/s</span></h3><b id="fg-reais">--</b></div>
+            <div class="c-gerados"><h3>Gerando<span>/s</span></h3><b id="fg-gerados">--</b></div>
+            <div><h3>GPU<span>ms</span></h3><b id="fg-gpu">--</b></div>
           </div>
         </div>
 

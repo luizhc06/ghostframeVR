@@ -147,8 +147,6 @@ function preencherConfig() {
 
 // ---------- SteamVR ao vivo (ou steamvr.vrsettings com ele fechado) ----------
 const vrSet = (chave, valor) => chamar("vr_set", { chave, valor });
-// Liga/desliga ao vivo: só mexe em framegen.ativo (o modo Auto/Manual fica como está).
-$("#fg-toggle").onchange = (ev) => salvar({ "framegen.ativo": ev.target.checked ? "1" : "0" });
 $("#jogo").onchange = (ev) => salvar({ "app.jogo_fixo": ev.target.value });
 $$("#trava button").forEach((b) => (b.onclick = () => vrSet("trava", +b.dataset.valor)));
 $("#ss-manual").onchange = (ev) => vrSet("supersampleManual", ev.target.checked);
@@ -346,18 +344,6 @@ function render(e) {
     config["framegen.ativo"] = e.config["framegen.ativo"];
     preencherConfig();
   }
-  // Frame gen ao vivo: chave e números do último segundo.
-  const fgAgora = vivo?.framegen;
-  const ligadoAgora = config["framegen.ativo"] === "1";
-  const toggle = $("#fg-toggle");
-  if (document.activeElement !== toggle) toggle.checked = ligadoAgora;
-  toggle.disabled = !e.framegenDisponivel;
-  texto($("#fg-toggle-texto"), !e.framegenDisponivel ? (e.alvo?.estado === "instalado" ? "atualize o proxy" : "instale o proxy")
-    : !ligadoAgora ? "desligado" : semFrames ? "sem frames do driver"
-    : !fgAgora ? "esperando frames" : { pronto: "gerando", esperando: "aquecendo", falhou: "falhou (veja o Log)", desligado: "esperando frames" }[fgAgora.estado] || fgAgora.estado);
-  texto($("#v-reais"), ligadoAgora && fgAgora ? fmt(fgAgora.reais) : "--");
-  texto($("#v-gerados"), ligadoAgora && fgAgora ? fmt(fgAgora.gerados) : "--");
-  texto($("#v-gpu"), ligadoAgora && fgAgora?.gpuMs >= 0 ? fmt(fgAgora.gpuMs, 1) : "--");
   const fpsAgora = present.at(-1)?.[1];
   texto($("#status-curto"), !aberto ? "SteamVR fechado"
     : fpsAgora != null && vivo ? `${fmt(fpsAgora)} fps no headset`
@@ -390,10 +376,12 @@ function render(e) {
   texto($("#fg-motivo"), framegenDisponivel ? a?.motivo || "" : ""); // sem frame gen o aviso já explica
   const fgv = vivo?.framegen;
   $("#fg-vivo").hidden = !(framegenDisponivel && config["framegen.ativo"] === "1");
-  texto($("#fg-estado"), semFrames ? "sem frames" : !fgv ? "--" : { pronto: "ativo", esperando: "esperando", falhou: "falhou", desligado: "desligado" }[fgv.estado] || fgv.estado);
+  // Ao vivo (o proxy atualiza a cada segundo).
+  texto($("#fg-estado"), semFrames ? "sem frames" : !fgv ? "esperando" : { pronto: "gerando", esperando: "aquecendo", falhou: "falhou", desligado: "esperando" }[fgv.estado] || fgv.estado);
+  texto($("#fg-reais"), fgv?.reais != null ? fmt(fgv.reais) : "--");
   texto($("#fg-motivo"), semFrames ? "O driver do headset não está passando frames pelo proxy. Veja o resumo na aba Log e mande o relatório." : $("#fg-motivo").textContent);
-  texto($("#fg-gerados"), fgv?.gerados != null ? `${fmt(fgv.gerados)}/s` : "--");
-  texto($("#fg-gpu"), fgv?.gpuMs >= 0 ? `${fmt(fgv.gpuMs, 1)} ms` : "--");
+  texto($("#fg-gerados"), fgv?.gerados != null ? fmt(fgv.gerados) : "--");
+  texto($("#fg-gpu"), fgv?.gpuMs >= 0 ? fmt(fgv.gpuMs, 1) : "--");
 
   // Ao vivo com o SteamVR conectado; pelo arquivo só com ele fechado (ele regrava ao sair).
   const s = vr?.config ?? e.steamvr;
