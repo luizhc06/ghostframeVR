@@ -59,9 +59,21 @@ mod win {
     fn steamvr_aberto() -> bool {
         vr::processo_rodando("vrserver.exe")
     }
-    /// %LocalAppdata%Low\VRChat\VRChat\config.json (doc do VRChat).
-    fn vrchat_config() -> PathBuf {
-        local().parent().map(Path::to_path_buf).unwrap_or_default().join("LocalLow").join("VRChat").join("VRChat").join("config.json")
+    /// %LocalAppdata%Low\VRChat\VRChat\config.json (doc do VRChat). None sem LOCALAPPDATA.
+    fn vrchat_config() -> Option<PathBuf> {
+        let l = local();
+        let pai = l.parent().filter(|_| l.is_absolute())?;
+        Some(pai.join("LocalLow").join("VRChat").join("VRChat").join("config.json"))
+    }
+    /// Conteúdo do config.json; "" se ainda não existe. Erro de leitura nunca vira "vazio":
+    /// senão o próximo gravar apagaria o arquivo do usuário.
+    fn ler_vrchat_config() -> Result<String, String> {
+        let p = vrchat_config().ok_or("não achei a pasta do usuário (LOCALAPPDATA)")?;
+        match fs::read_to_string(p) {
+            Ok(t) => Ok(t),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+            Err(e) => Err(format!("não consegui ler o config.json do VRChat ({e}): não mexi nele")),
+        }
     }
     /// Agendamento de GPU por hardware (HwSchMode: 2 ligado, 1 desligado). Só muda com
     /// reinício do Windows: lido uma vez por execução do app, sem abrir janela.
@@ -133,11 +145,11 @@ mod win {
             "jogos": jogos,
             "pastaApp": pasta_app(),
         });
-        let texto = fs::read_to_string(vrchat_config()).unwrap_or_default();
+        let limitador = ler_vrchat_config().and_then(|t| core::vrc_limitador(&t));
         r["vrchat"] = json!({
             "aberto": vr::processo_rodando("VRChat.exe"),
-            "limitador": core::vrc_limitador(&texto).ok(),
-            "erroConfig": core::vrc_limitador(&texto).err(),
+            "limitador": limitador.as_ref().ok(),
+            "erroConfig": limitador.as_ref().err(),
             "amd": core::cpu_amd(),
             "threads": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
             "hags": hags(),
@@ -326,8 +338,8 @@ mod win {
     /// Liga/desliga o limitador de partículas no config.json do VRChat (backup na 1ª vez).
     #[tauri::command]
     fn vrchat_particulas(ligar: bool) -> Result<String, String> {
-        let p = vrchat_config();
-        let texto = fs::read_to_string(&p).unwrap_or_default();
+        let p = vrchat_config().ok_or("não achei a pasta do usuário (LOCALAPPDATA)")?;
+        let texto = ler_vrchat_config()?;
         let novo = core::vrc_com_limitador(&texto, ligar)?;
         let pasta = p.parent().ok_or("caminho do VRChat inválido")?;
         if !pasta.is_dir() {
