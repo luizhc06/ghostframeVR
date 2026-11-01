@@ -1,6 +1,6 @@
 # Contribuindo com o ghostframeVR
 
-Valeu pelo interesse! 👻
+Valeu pelo interesse.
 
 ## A forma mais útil de ajudar agora: testar
 

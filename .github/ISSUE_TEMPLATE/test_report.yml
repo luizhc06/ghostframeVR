@@ -1,4 +1,4 @@
-name: 🧪 Relatório de teste
+name: Relatório de teste
 description: Testou o ghostframeVR? Mande o log — é a contribuição mais útil agora.
 title: "[Teste] <headset> + <app de streaming> — <resultado curto>"
 labels: ["test-report"]
@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Obrigado por testar! 👻 Preencha o que souber. O **log** é o mais importante.
+        Obrigado por testar. Preencha o que souber. O **log** é o mais importante.
   - type: input
     id: version
     attributes:
