@@ -45,7 +45,6 @@ const char kHlsl[] = R"hlsl(
 #define JANELA (BLOCO + 2 * BUSCA)
 #define LADO_BUSCA (2 * BUSCA + 1)
 #define NCAND (LADO_BUSCA * LADO_BUSCA)
-#define NBLOCO (BLOCO * BLOCO)
 
 cbuffer Params : register(b0) {
     float4 gH0, gH1, gH2; // homografia luma atual -> luma anterior
@@ -487,11 +486,14 @@ struct FrameGen::Impl {
     }
 
     bool CompilaShaders(decltype(&D3DCompile) compila) {
-        char escala[8], bloco[8], busca[8];
+        char escala[8], bloco[8], busca[8], nbloco[8];
         std::snprintf(escala, sizeof(escala), "%d", ref::kEscala);
         std::snprintf(bloco, sizeof(bloco), "%d", ref::kBloco);
         std::snprintf(busca, sizeof(busca), "%d", ref::kBusca);
-        const D3D_SHADER_MACRO macros[] = {{"ESCALA", escala}, {"BLOCO", bloco}, {"BUSCA", busca}, {nullptr, nullptr}};
+        // Já calculado: o [numthreads] de alguns compiladores (vkd3d no Wine) não aceita conta.
+        std::snprintf(nbloco, sizeof(nbloco), "%d", ref::kBloco * ref::kBloco);
+        const D3D_SHADER_MACRO macros[] = {
+            {"ESCALA", escala}, {"BLOCO", bloco}, {"BUSCA", busca}, {"NBLOCO", nbloco}, {nullptr, nullptr}};
         struct {
             const char *nome;
             ComPtr<ID3D11ComputeShader> *cs;
