@@ -157,11 +157,12 @@
   <section id="aba-vrchat" class="aba">
     <div class="painel">
       <header>
-        <h2>Modo VRChat leve</h2><span class="tag alerta" id="vrc-aberto" hidden>VRChat aberto</span>
-        <button class="btn" id="btn-vrc-restaurar" hidden>Restaurar</button>
-        <button class="btn forte" id="btn-vrc-leve">Aplicar</button>
+        <h2>Otimizar tudo</h2><span class="tag alerta" id="vrc-aberto" hidden>VRChat aberto</span>
+        <button class="btn" id="btn-vrc-restaurar" hidden>Restaurar o jogo</button>
+        <button class="btn forte" id="btn-vrc-leve">Otimizar</button>
       </header>
-      <p class="nota topo">De uma vez: perfil Desempenho do ghostframe (com frame gen instalado), bloqueio de Poor e Very Poor com impostor, até 15 avatares, partículas limitadas, espelho Quarter, sombras e detalhe Low, sem anti-aliasing. Restaurar volta as opções do jogo como eram.</p>
+      <p class="nota topo">Num clique: o jogo leve (bloqueio de Poor e Very Poor com impostor, até 15 avatares, partículas, espelho Quarter, sombras e detalhe Low, sem anti-aliasing), perfil Desempenho, plano de energia Alto, SteamVR Home desligado e as opções de inicialização na Steam. Depois confere item por item. Feche o VRChat e a Steam antes.</p>
+      <ul class="conferencia" id="vrc-conferencia" hidden></ul>
     </div>
 
     <div class="duas">
@@ -221,7 +222,7 @@
       <div class="coluna-paineis">
         <div class="painel">
           <header><h2>Inicialização</h2></header>
-          <p class="nota topo">Cole em Steam → VRChat → Propriedades → Opções de inicialização.</p>
+          <p class="nota topo">Gravadas direto nas opções de inicialização do VRChat na Steam (com a Steam fechada).</p>
           <div class="ajuste primeiro">
             <div><h3>Prioridade do processo</h3><p>Passa na frente de outros programas na CPU. A doc avisa: Alta pode travar o PC</p></div>
             <div class="seg mini" data-chave="vrchat.prioridade">
@@ -243,8 +244,10 @@
           </label>
           <div class="copiar">
             <input type="text" id="vrc-args" readonly aria-label="Opções de inicialização do VRChat">
+            <button class="btn forte" id="btn-vrc-steam" title="Grava no VRChat da sua conta Steam, mantendo as suas outras opções">Gravar na Steam</button>
             <button class="btn" id="btn-vrc-copiar">Copiar</button>
           </div>
+          <p class="nota" id="vrc-steam-agora"></p>
         </div>
 
         <div class="painel">

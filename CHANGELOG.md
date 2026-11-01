@@ -4,6 +4,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+### Adicionado
+- **Otimizar tudo** (aba VRChat): num clique, o jogo leve, perfil Desempenho, plano de energia Alto, SteamVR Home desligado e as opções de inicialização; depois confere item por item pelo que ficou gravado e mostra o que faltou e por quê.
+- Opções de inicialização gravadas direto no VRChat da sua conta Steam (localconfig.vdf, com a Steam fechada e backup), mantendo as opções que você já tinha. Só a linha do VRChat muda no arquivo.
+- O app atualiza o proxy do driver sozinho quando você abre uma versão nova (ou quando o programa do headset restaura a DLL dele), com o SteamVR fechado.
+
 ## [0.2.10-alpha] - 2026-11-01
 
 ### Adicionado

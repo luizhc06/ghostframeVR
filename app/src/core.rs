@@ -377,6 +377,26 @@ fn eh_nossa(p: &Path) -> bool {
     marcas(p).0
 }
 
+/// O proxy instalado é diferente do que vem dentro deste app (abriu um app mais novo).
+/// Compara os bytes, mas só relê a DLL quando ela muda.
+pub fn proxy_diferente(dll: &Path, proxy: &[u8]) -> bool {
+    type Cache = Option<(PathBuf, u64, Option<SystemTime>, bool)>;
+    static CACHE: Mutex<Cache> = Mutex::new(None);
+    if proxy.is_empty() || estado(dll) != Estado::Instalado {
+        return false;
+    }
+    let (tam, mtime) = fs::metadata(dll).map(|m| (m.len(), m.modified().ok())).unwrap_or((0, None));
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((cp, ct, cm, r)) = c.as_ref() {
+        if cp == dll && *ct == tam && *cm == mtime {
+            return *r;
+        }
+    }
+    let r = tam != proxy.len() as u64 || fs::read(dll).map(|b| b != proxy).unwrap_or(false);
+    *c = Some((dll.to_path_buf(), tam, mtime, r));
+    r
+}
+
 /// O proxy instalado nesse driver já sabe gerar frames (proxy antigo: precisa atualizar).
 pub fn proxy_com_framegen(dll: &Path) -> bool {
     estado(dll) == Estado::Instalado && marcas(dll).1
