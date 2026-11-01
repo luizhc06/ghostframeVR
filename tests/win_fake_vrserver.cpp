@@ -380,6 +380,8 @@ struct Compositor {
 
 // Um vsync: desenha o frame `jogo` na textura que o driver indicou, submete com a pose dele,
 // Present e PostPresent (trava = nFramesToThrottle). Devolve o handle submetido.
+double g_tPresent = 0; // quando o último Vsync chamou Present
+
 vr::SharedTextureHandle_t Vsync(Compositor &c, int jogo, uint32_t trava) {
     const uint32_t i = c.idx;
     Desenha(jogo, c.img);
@@ -395,6 +397,7 @@ vr::SharedTextureHandle_t Vsync(Compositor &c, int jogo, uint32_t trava) {
         e[olho].mHmdPose = Pose(jogo);
     }
     c.dm->SubmitLayer(e);
+    g_tPresent = gf::NowSeconds(); // daqui em diante o tempo é do proxy e do driver
     c.dm->Present(c.hSync);
     const DM8::Throttling_t t{trava, 0};
     c.dm->PostPresent(&t);
@@ -730,7 +733,9 @@ int main(int argc, char **argv) {
             const double tv = gf::NowSeconds();
             const int de = fake.presents();
             Vsync(c, jogo, 0);
-            const double segurou = gf::NowSeconds() - tv;
+            // Do Present do compositor até o proxy devolver o PostPresent (o desenho do
+            // compositor falso antes do Present não é do proxy).
+            const double segurou = gf::NowSeconds() - g_tPresent;
             const std::vector<Reg> r = Registros(fake, de);
             if (k >= 10) {
                 quadros++;
