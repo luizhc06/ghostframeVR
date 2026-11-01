@@ -103,4 +103,6 @@ jobs:
           name: ghostframeVR-${{ github.sha }}
           path: |
             build/Release/driver_ghostframe.dll
+            build/Release/driver_ghostframe_real.dll
+            build/Release/win_fake_vrserver.exe
             app/target/release/ghostframeVR.exe
