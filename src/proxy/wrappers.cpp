@@ -647,6 +647,26 @@ void Frente008::PostPresent(const Throttling_t *t) {
 
 // Propriedades do SteamVR (do contexto real, pedidas pelo próprio proxy no Init).
 static std::atomic<vr::IVRProperties *> g_props{nullptr};
+// Container do HMD e o valor que o driver tinha, para devolver ao desligar o frame gen.
+static std::mutex g_mutexTrava;
+static vr::PropertyContainerHandle_t g_hmdContainer = vr::k_ulInvalidPropertyContainer;
+static bool g_travaOriginal = false, g_travaNossa = false;
+
+// Frame gen ligado: o headset passa a aceitar a trava por jogo do SteamVR (como o Lossless,
+// o jogo roda numa fração e o proxy gera o resto). Sem esta propriedade o SteamVR nunca
+// manda nFramesToThrottle ao PostPresent; quem segura o vsync é o proxy. Desligado, volta
+// o valor do driver. Chamada no Activate do HMD e quando o ghostframe.ini muda.
+void TravaPorJogo(bool ligado) {
+    vr::IVRProperties *props = g_props.load();
+    std::lock_guard<std::mutex> lock(g_mutexTrava);
+    if (!props || g_hmdContainer == vr::k_ulInvalidPropertyContainer || ligado == g_travaNossa) return;
+    vr::CVRPropertyHelpers h(props);
+    const bool valor = ligado || g_travaOriginal;
+    const vr::ETrackedPropertyError e = h.SetBoolProperty(g_hmdContainer, vr::Prop_Hmd_SupportsAppThrottling_Bool, valor);
+    g_travaNossa = ligado;
+    GF_LOG("FRAMEGEN trava por jogo no headset: SupportsAppThrottling=%d (do driver: %d, erro=%d)",
+           (int)valor, (int)g_travaOriginal, (int)e);
+}
 
 DeviceWrapper::DeviceWrapper(vr::ITrackedDeviceServerDriver *real, const char *serial, vr::ETrackedDeviceClass cls)
     : m_real(real), m_class(cls) {
@@ -656,17 +676,15 @@ DeviceWrapper::DeviceWrapper(vr::ITrackedDeviceServerDriver *real, const char *s
 vr::EVRInitError DeviceWrapper::Activate(uint32_t id) {
     vr::EVRInitError r = m_real->Activate(id);
     GF_LOG("Device(%s)::Activate id=%u -> %d", DeviceClassName(m_class), id, (int)r);
-    // Frame gen ligado: o headset passa a aceitar a trava por jogo do SteamVR (como o Lossless,
-    // o jogo roda numa fração e o proxy gera o resto). Sem esta propriedade o SteamVR nunca
-    // manda nFramesToThrottle ao PostPresent; quem segura o vsync é o proxy.
     vr::IVRProperties *props = g_props.load();
-    if (r == vr::VRInitError_None && m_class == vr::TrackedDeviceClass_HMD && props && g_opcoes.framegen.load()) {
-        vr::CVRPropertyHelpers h(props);
-        const vr::PropertyContainerHandle_t c = props->TrackedDeviceToPropertyContainer(id);
-        const bool antes = h.GetBoolProperty(c, vr::Prop_Hmd_SupportsAppThrottling_Bool);
-        const vr::ETrackedPropertyError e = h.SetBoolProperty(c, vr::Prop_Hmd_SupportsAppThrottling_Bool, true);
-        GF_LOG("FRAMEGEN trava por jogo habilitada no headset (SupportsAppThrottling %s -> 1, erro=%d)",
-               antes ? "1" : "0", (int)e);
+    if (r == vr::VRInitError_None && m_class == vr::TrackedDeviceClass_HMD && props) {
+        {
+            std::lock_guard<std::mutex> lock(g_mutexTrava);
+            g_hmdContainer = props->TrackedDeviceToPropertyContainer(id);
+            g_travaOriginal = vr::CVRPropertyHelpers(props).GetBoolProperty(g_hmdContainer, vr::Prop_Hmd_SupportsAppThrottling_Bool);
+            g_travaNossa = false;
+        }
+        TravaPorJogo(g_opcoes.framegen.load());
     }
     return r;
 }

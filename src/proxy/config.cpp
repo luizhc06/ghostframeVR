@@ -67,7 +67,10 @@ void LerOpcoes() {
     std::string texto;
     if (!LerArquivo(CaminhoIni(), texto)) return;
     bool fg = IniLigado(texto.c_str(), "framegen", "ativo");
-    if (fg != g_opcoes.framegen.exchange(fg)) GF_LOG("FRAMEGEN %s pelo ghostframe.ini", fg ? "ligado" : "desligado");
+    if (fg != g_opcoes.framegen.exchange(fg)) {
+        GF_LOG("FRAMEGEN %s pelo ghostframe.ini", fg ? "ligado" : "desligado");
+        TravaPorJogo(fg);
+    }
 }
 
 void Laco() {

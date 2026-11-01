@@ -581,7 +581,14 @@ bool FrameGen::Iniciar(bool warp) {
         m->dev.Reset();
         return false;
     }
-    GF_LOG("FrameGen: iniciado (%s, feature level 0x%x)", warp ? "WARP" : "hardware", (unsigned)nivel);
+    // Qual GPU: as texturas do compositor só abrem no mesmo adaptador do SteamVR.
+    char gpu[128] = "?";
+    ComPtr<IDXGIDevice> dxgi;
+    ComPtr<IDXGIAdapter> adaptador;
+    DXGI_ADAPTER_DESC desc{};
+    if (SUCCEEDED(m->dev.As(&dxgi)) && SUCCEEDED(dxgi->GetAdapter(&adaptador)) && SUCCEEDED(adaptador->GetDesc(&desc)))
+        WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, gpu, sizeof(gpu), nullptr, nullptr);
+    GF_LOG("FrameGen: iniciado (%s, %s, feature level 0x%x)", warp ? "WARP" : "hardware", gpu, (unsigned)nivel);
     return true;
 }
 

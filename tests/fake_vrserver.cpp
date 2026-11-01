@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
+#include <thread>
 
 namespace {
 
@@ -86,6 +88,16 @@ int main(int argc, char **argv) {
     CHECK(g_addedHmd->Activate(0) == vr::VRInitError_None);
     // Frame gen ligado: o HMD passa a aceitar a trava por jogo; desligado, nada muda.
     CHECK(g_travaPorJogo == (std::getenv("GF_INI") ? 1 : -1));
+    if (const char *ini = std::getenv("GF_INI")) {
+        // Desligar no app (o ini é relido a cada 1 s) devolve o valor do driver; religar, liga.
+        auto gravar = [ini](const char *v) { FILE *f = std::fopen(ini, "wb"); if (f) { std::fputs(v, f); std::fclose(f); } };
+        gravar("[framegen]\nativo = 0\n");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        CHECK(g_travaPorJogo == 0);
+        gravar("; teste\n[framegen]\nativo = 1\n");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        CHECK(g_travaPorJogo == 1);
+    }
 
     auto *vd = (vr::IVRVirtualDisplay *)g_addedHmd->GetComponent(vr::IVRVirtualDisplay_Version);
     auto *dm = (vr::IVRDriverDirectModeComponent *)g_addedHmd->GetComponent(vr::IVRDriverDirectModeComponent_Version);

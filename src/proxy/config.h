@@ -29,6 +29,9 @@ extern EstatFG g_estatFG;
 // Lê "[secao] chave=valor" de um ini já carregado em memória. Exposto para teste.
 bool IniLigado(const char *texto, const char *secao, const char *chave);
 
+// Definida em wrappers.cpp: liga/desliga a trava por jogo no headset junto com o frame gen.
+void TravaPorJogo(bool ligado);
+
 void IniciarFundo();
 void PararFundo();
 
