@@ -134,6 +134,8 @@ pub fn ler_autoteste(saida: &str, codigo: Option<i32>) -> Value {
     json!({
         "passou": skip.is_none() && codigo == Some(0) && linhas.iter().any(|l| l.contains("TODOS OS TESTES PASSARAM")),
         "skip": skip,
+        // Diagnóstico da escrita entre devices (cada jeito: ok ou o que veio diferente).
+        "sonda": linhas.iter().find_map(|l| l.strip_prefix("sonda: ")),
         "gpu": gpu,
         "resumo": resumo,
         "falhas": falhas,
@@ -847,6 +849,9 @@ mod testes {
         assert_eq!(r["gpuMsMax"], 10.03);
         // Código de saída diferente de 0 ou SKIP: não passou.
         assert_eq!(ler_autoteste(include_str!("amostras/autoteste_ci.txt"), Some(1))["passou"], false);
+        assert!(r["sonda"].is_null()); // a amostra da CI é de antes da sonda nova
+        let d = ler_autoteste("sonda: escrita+espera=ok; relida=ok; conteúdo na criação=4096 de 16384 bytes diferentes; keyed mutex=ok\n", Some(0));
+        assert_eq!(d["sonda"], "escrita+espera=ok; relida=ok; conteúdo na criação=4096 de 16384 bytes diferentes; keyed mutex=ok");
         let s = ler_autoteste("SKIP: sem adaptador de hardware que compartilhe texturas\n", Some(77));
         assert_eq!(s["passou"], false);
         assert_eq!(s["skip"], "sem adaptador de hardware que compartilhe texturas");
