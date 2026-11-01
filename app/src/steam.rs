@@ -129,8 +129,12 @@ fn desescapar(s: &str) -> String {
             match it.next() {
                 Some('n') => r.push('\n'),
                 Some('t') => r.push('\t'),
-                Some(x) => r.push(x),
-                None => {}
+                Some(x @ ('\\' | '"')) => r.push(x),
+                Some(x) => {
+                    r.push('\\'); // escape desconhecido: a barra fica, como estava
+                    r.push(x);
+                }
+                None => r.push('\\'),
             }
         } else {
             r.push(c);
@@ -231,6 +235,8 @@ mod testes {
         assert_eq!(mesclar("--no-vr --process-priority=2 --fps=90", "--process-priority=1"), "--no-vr --fps=90 --process-priority=1");
         assert_eq!(mesclar("", "--process-priority=1 --affinity=FFF"), "--process-priority=1 --affinity=FFF");
         assert_eq!(mesclar("--affinity=F --x", ""), "--x");
+        // Escape desconhecido fica como estava.
+        assert_eq!(desescapar(r#"a\q \" \\ b"#), r#"a\q " \ b"#);
     }
 
     /// Com GF_VDF apontando para um localconfig.vdf real (uma cópia): lê, edita e confere

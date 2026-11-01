@@ -266,7 +266,10 @@ $("#btn-vrc-leve").onclick = (ev) => gravandoVrc(async () => {
     if (vrPode) await passo("home", () => invoke("vr_set", { chave: "home", valor: false }));
     else erro.home = "SteamVR indisponível agora";
     const args = argsVrchat();
-    if (args) await passo("steam", () => invoke("vrchat_opcoes_steam", { nossas: args }));
+    // Sempre: com args vazio, tira as nossas antigas e deixa as do usuário.
+    await passo("steam", () => invoke("vrchat_opcoes_steam", { nossas: args }));
+    // O SteamVR ao vivo é relido a cada 1 s: espera a próxima leitura antes de conferir.
+    await new Promise((r) => setTimeout(r, 1300));
     const e = await invoke("estado");
     const aj = e.vrchat?.jogo?.ajustes || {}, s = e.vr?.config ?? e.steamvr, c = e.config || {};
     const itens = [
@@ -275,13 +278,14 @@ $("#btn-vrc-leve").onclick = (ev) => gravandoVrc(async () => {
       ["perfil", "Perfil Desempenho", c["framegen.ativo"] === "1" && c["framegen.modo"] === "manual" && c["framegen.multiplicador"] === "2"],
       ["energia", "Plano de energia Alto", e.vrchat?.energia?.alto === true],
       ["home", "SteamVR Home desligado", s?.home === false],
-      ["steam", "Opções de inicialização na Steam", !args || (e.vrchat?.steam?.opcoes || "").split(" ").filter(Boolean).join(" ").endsWith(args)],
+      ["steam", "Opções de inicialização na Steam", ((o) => args ? o.endsWith(args) : !/--(process-priority|main-thread-priority|affinity)=/.test(o))(
+        (e.vrchat?.steam?.opcoes ?? "--affinity=?").split(" ").filter(Boolean).join(" "))],
     ];
     html($("#vrc-conferencia"), itens.map(([id, nome, ok]) =>
       `<li class="${ok ? "ok" : "falta"}"><b>${ok ? "ok" : "falta"}</b> ${esc(nome)}${ok ? "" : erro[id] ? `: ${esc(erro[id])}` : ": não ficou gravado"}</li>`).join(""));
     $("#vrc-conferencia").hidden = false;
     const faltam = itens.filter((i) => !i[2]).length;
-    toast(faltam ? `Otimizado, faltam ${faltam} itens (veja a lista)` : "Tudo otimizado e conferido.", faltam > 0);
+    toast(faltam ? `Otimizado, ${faltam === 1 ? "falta 1 item" : `faltam ${faltam} itens`} (veja a lista)` : "Tudo otimizado e conferido.", faltam > 0);
   } finally {
     b.disabled = false;
     atualizar();
@@ -458,10 +462,16 @@ function render(e) {
   const aberto = e.processos.steamvr;
   // Abriu um app mais novo (ou o Pico restaurou a DLL dele): atualiza o proxy sozinho,
   // uma vez por execução, com o SteamVR fechado (o Windows pode pedir permissão).
-  if (!autoInstalou && !aberto && e.dllEmbutida && (e.alvo?.desatualizado || e.alvo?.estado === "sobrescrito")) {
+  // Só sobe de versão, sem pedir administrador de surpresa; senão, avisa e o botão resolve.
+  // DLL restaurada pelo programa do headset não é reinstalada sozinha (pode ter sido um "reparar").
+  if (!autoInstalou && !aberto && e.dllEmbutida && e.alvo?.desatualizado && e.alvo.maisNovo) {
     autoInstalou = true;
-    toast(e.alvo.desatualizado ? "Atualizando o proxy do driver para esta versão..." : "O programa do headset restaurou a DLL dele: reinstalando o proxy...");
-    chamar("instalar");
+    if (e.alvo.podeEscrever) {
+      toast("Atualizando o proxy do driver para esta versão...");
+      chamar("instalar");
+    } else {
+      toast("Proxy do driver de uma versão antiga: clique em Atualizar na aba Instalação (o Windows pede permissão).", true);
+    }
   }
   status("steamvr", aberto ? "ok" : "", aberto ? "rodando" : "fechado");
   if (vr) status("headset", "ok", `${vr.modelo} · ${fmt(vr.hz)} Hz`);
@@ -573,7 +583,7 @@ function render(e) {
   $("#btn-vrc-copiar").disabled = !args;
   const st = vrcInfo?.steam;
   $("#btn-vrc-steam").disabled = !st || st.aberta || st.opcoes == null;
-  texto($("#vrc-steam-agora"), !st || st.opcoes == null ? "Não achei a configuração da sua conta Steam."
+  texto($("#vrc-steam-agora"), !st ? "" : st.erro ? `Configuração da Steam ilegível: ${st.erro}` : st.opcoes == null ? "Não achei a configuração da sua conta Steam."
     : (st.aberta ? "Feche a Steam para gravar. " : "") + `Na Steam agora: ${st.opcoes || "nenhuma opção"}`);
   const lim = vrcInfo?.limitador;
   if (!vrcGravando) $("#vrc-particulas").checked = !!lim;

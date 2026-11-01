@@ -30,6 +30,7 @@ pub const PADROES: &[(&str, &str)] = &[
     ("app.alvo", ""),
     ("app.jogo_fixo", ""), // vazio = trava no jogo que estiver aberto
     ("app.autostart", "0"),
+    ("app.proxy_versao", ""), // versão do app que instalou o proxy (atualização automática)
     // Opções de inicialização do VRChat que a aba VRChat monta para copiar (não vão a lugar nenhum sozinhas).
     ("vrchat.prioridade", "1"),
     ("vrchat.thread", "0"),
@@ -107,6 +108,12 @@ pub fn cpu_amd() -> bool {
 
 fn erro(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::Other, msg.into())
+}
+
+/// "0.2.10-alpha" > "0.2.9-alpha": compara os números, não o texto.
+pub fn versao_maior(a: &str, b: &str) -> bool {
+    let n = |v: &str| v.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).map(|x| x.parse::<u64>().unwrap_or(0)).take(3).collect::<Vec<_>>();
+    n(a) > n(b)
 }
 
 pub fn agora() -> u64 {
@@ -443,7 +450,14 @@ pub fn instalar(dll: &Path, proxy: &[u8], backups: &Path) -> io::Result<String> 
             return Err(erro("a DLL original (_real) sumiu; reinstale o Pico Connect e tente de novo"))
         }
         Estado::Instalado => {
-            fs::write(dll, proxy)?;
+            // .tmp + rename: uma escrita pela metade não pode deixar uma DLL truncada
+            // (ela pareceria "restaurada pelo Pico" e a próxima instalação a trataria como original).
+            let tmp = dll.with_extension("dll.tmp");
+            fs::write(&tmp, proxy)?;
+            if let Err(e) = fs::rename(&tmp, dll) {
+                let _ = fs::remove_file(&tmp);
+                return Err(e);
+            }
             return Ok("proxy atualizado".into());
         }
         Estado::Original | Estado::Sobrescrito => {}
@@ -784,6 +798,14 @@ pub fn gravar_atomico(arquivo: &Path, conteudo: &str) -> io::Result<()> {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn compara_versoes() {
+        assert!(versao_maior("0.2.10-alpha", "0.2.9-alpha"));
+        assert!(!versao_maior("0.2.9-alpha", "0.2.10-alpha"));
+        assert!(!versao_maior("0.2.10-alpha", "0.2.10-alpha"));
+        assert!(versao_maior("0.3.0", ""));
+    }
 
     #[test]
     fn config_do_vrchat_limitador_de_particulas() {

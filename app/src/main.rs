@@ -143,7 +143,12 @@ mod win {
             "alvo": alvo.map(|d| {
                 let mut j = d.json();
                 j["estado"] = core::estado(&d.dll).codigo().into();
+                // Atualização automática: só para uma versão mais nova que a que instalou o
+                // proxy (duas versões do app não brigam) e sem pedir administrador de surpresa.
+                let instalada = cfg.get("app.proxy_versao").and_then(Value::as_str).unwrap_or("");
                 j["desatualizado"] = core::proxy_diferente(&d.dll, PROXY_DLL).into();
+                j["maisNovo"] = core::versao_maior(env!("CARGO_PKG_VERSION"), instalada).into();
+                j["podeEscrever"] = core::pode_escrever(&d.dll).into();
                 j
             }),
             "log": log,
@@ -166,7 +171,11 @@ mod win {
             "threads": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
             "hags": hags(),
             // Opções de inicialização que a Steam tem para o VRChat (null: não achei a conta).
-            "steam": { "aberta": vr::processo_rodando("steam.exe"), "opcoes": localconfig(&ovr).and_then(|p| fs::read_to_string(p).ok()).and_then(|t| steam::opcoes(&t, VRCHAT_APPID).ok()) },
+            "steam": match localconfig(&ovr).map(|p| fs::read_to_string(p).map_err(|e| e.to_string()).and_then(|t| steam::opcoes(&t, VRCHAT_APPID))) {
+                Some(Ok(o)) => json!({ "aberta": vr::processo_rodando("steam.exe"), "opcoes": o }),
+                Some(Err(e)) => json!({ "aberta": vr::processo_rodando("steam.exe"), "opcoes": null, "erro": e }),
+                None => json!({ "aberta": vr::processo_rodando("steam.exe"), "opcoes": null }),
+            },
             "energia": plano_energia().map(|g| json!({
                 "alto": g == PLANO_ALTO || g == PLANO_MAXIMO,
                 "nome": match g.as_str() { PLANO_ALTO => "Alto desempenho", PLANO_MAXIMO => "Desempenho máximo", PLANO_EQUILIBRADO => "Equilibrado", _ => "outro" },
@@ -261,7 +270,12 @@ mod win {
 
     #[tauri::command]
     async fn instalar() -> Result<String, String> {
-        operar("instalar")
+        let r = operar("instalar")?;
+        // Lembra qual versão do app instalou o proxy (a automática só sobe de versão).
+        let mut v = Map::new();
+        v.insert("app.proxy_versao".into(), json!(env!("CARGO_PKG_VERSION")));
+        let _ = salvar_config(v);
+        Ok(r)
     }
 
     #[tauri::command]
