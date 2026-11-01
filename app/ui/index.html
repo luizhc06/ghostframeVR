@@ -161,7 +161,7 @@
         <button class="btn" id="btn-vrc-restaurar" hidden>Restaurar</button>
         <button class="btn forte" id="btn-vrc-leve">Aplicar</button>
       </header>
-      <p class="nota topo">De uma vez: perfil Desempenho do ghostframe (com frame gen instalado), bloqueio de Poor e Very Poor, até 15 avatares, partículas limitadas, espelho Quarter, sombras e detalhe Low, sem anti-aliasing. Restaurar volta as opções do jogo como eram.</p>
+      <p class="nota topo">De uma vez: perfil Desempenho do ghostframe (com frame gen instalado), bloqueio de Poor e Very Poor com impostor, até 15 avatares, partículas limitadas, espelho Quarter, sombras e detalhe Low, sem anti-aliasing. Restaurar volta as opções do jogo como eram.</p>
     </div>
 
     <div class="duas">
@@ -174,6 +174,18 @@
             <button data-valor="4">Very Poor</button>
             <button data-valor="3">Poor e Very Poor</button>
           </div>
+        </div>
+        <p class="nota mini">Acima do rank, malha, skinned meshes, materiais ou ossos demais: o avatar vira impostor. PhysBones, luzes ou partículas demais: só esses saem. No PC o VRChat não bloqueia nada por padrão.</p>
+        <label class="ajuste">
+          <div><h3>Usar impostor</h3><p>Avatar bloqueado aparece numa versão leve gerada pelo VRChat, em vez de sumir</p></div>
+          <span class="sw"><input type="checkbox" data-vrc="impostor" data-sim="1" data-nao="0"><i></i></span>
+        </label>
+        <div class="ajuste coluna">
+          <label class="linha">
+            <div><h3>Esconder avatares longe <output id="vrc-dist-valor"></output></h3><p>Some a partir dessa distância (Hide Avatar Beyond)</p></div>
+            <span class="sw"><input type="checkbox" id="vrc-dist-ligada"><i></i></span>
+          </label>
+          <input type="range" id="vrc-dist" min="5" max="50" aria-label="Distância em metros">
         </div>
         <div class="ajuste coluna">
           <label class="linha">

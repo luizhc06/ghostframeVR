@@ -229,6 +229,14 @@ $$("#vrc-rank button").forEach((b) => (b.onclick = () => vrcAjustar({ rank: +b.d
 $$("[data-vrc]").forEach((el) => (el.onchange = () =>
   vrcAjustar({ [el.dataset.vrc]: +(el.checked ? el.dataset.sim : el.dataset.nao) })));
 $("#vrc-max-ligado").onchange = (ev) => vrcAjustar({ maxLigado: ev.target.checked ? 1 : 0 });
+$("#vrc-dist-ligada").onchange = (ev) =>
+  vrcAjustar(ev.target.checked ? { distLigada: 1, distancia: +$("#vrc-dist").value } : { distLigada: 0 });
+$("#vrc-dist").oninput = (ev) => {
+  const el = ev.target;
+  el._mexido = Date.now();
+  texto($("#vrc-dist-valor"), el.value + " m");
+  depois(el, () => vrcAjustar({ distancia: +el.value }), 300);
+};
 $("#vrc-max").oninput = (ev) => {
   const el = ev.target;
   el._mexido = Date.now();
@@ -244,7 +252,7 @@ $("#btn-vrc-leve").onclick = (ev) => gravandoVrc(async () => {
   const b = ev.target, erros = [];
   b.disabled = true;
   try {
-    await invoke("vrchat_ajustar", { valores: { rank: 3, maxLigado: 1, maxAvatares: 15, espelho: 2, sombras: 0, lod: 0, aa: 1 } });
+    await invoke("vrchat_ajustar", { valores: { rank: 3, impostor: 1, maxLigado: 1, maxAvatares: 15, espelho: 2, sombras: 0, lod: 0, aa: 1 } });
     await invoke("vrchat_particulas", { ligar: true }).catch((e) => erros.push(String(e)));
     if (framegenDisponivel && vrPode) await aplicarPerfil("desempenho").catch((e) => erros.push(String(e)));
     else erros.push("perfil Desempenho não aplicado (frame gen ou SteamVR indisponível agora)");
@@ -564,8 +572,14 @@ function render(e) {
   if (!vrcGravando) {
     $$("[data-vrc]").forEach((el) => (el.checked = String(aj[el.dataset.vrc]) === el.dataset.sim));
     $("#vrc-max-ligado").checked = aj.maxLigado === 1;
+    $("#vrc-dist-ligada").checked = aj.distLigada === 1;
   }
-  $$("[data-vrc], #vrc-max-ligado").forEach((el) => (el.disabled = !fechado));
+  $$("[data-vrc], #vrc-max-ligado, #vrc-dist-ligada").forEach((el) => (el.disabled = !fechado));
+  const dist = $("#vrc-dist");
+  dist.disabled = !fechado || aj.distLigada !== 1;
+  // Fora da faixa da interface (um VRChat novo grava 100): o slider começa no máximo dela.
+  if (!(Date.now() - (dist._mexido || 0) < 1500) && aj.distancia != null) dist.value = Math.min(aj.distancia, 50);
+  texto($("#vrc-dist-valor"), aj.distLigada === 1 ? dist.value + " m" : "");
   const mx = $("#vrc-max");
   mx.disabled = !fechado || aj.maxLigado !== 1;
   if (!(Date.now() - (mx._mexido || 0) < 1500) && aj.maxAvatares != null) mx.value = aj.maxAvatares;

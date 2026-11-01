@@ -6,7 +6,7 @@ if (!window.__TAURI__) {
   const t0 = Date.now() / 1000;
   let vrcLimitador = false;
   // Valores de um VRChat recém-instalado (registro real).
-  const vrcPadrao = { rank: 5, maxLigado: 0, maxAvatares: 80, espelho: 0, sombras: 2, lod: 1, aa: 4 };
+  const vrcPadrao = { rank: 5, impostor: 1, maxLigado: 0, maxAvatares: 80, distLigada: 0, distancia: 100, espelho: 0, sombras: 2, lod: 1, aa: 4 };
   let vrcAjustes = { ...vrcPadrao }, vrcBackup = false, energiaAlto = false;
   const vrcAberto = /vrcaberto/.test(location.search);
   const cfg = {
