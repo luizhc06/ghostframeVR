@@ -4,11 +4,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.8-alpha] - 2026-11-01
+
 ### Corrigido
-- O SteamVR só manda a trava por jogo a headsets que declaram `Prop_Hmd_SupportsAppThrottling_Bool`. Com o frame gen ligado, o proxy declara no headset (o log mostra o valor que o driver tinha) e segura o vsync ele mesmo, como o Lossless Scaling faz no monitor: o jogo roda numa fração dos Hz e o proxy gera o resto.
+- O SteamVR só manda a trava por jogo a headsets que declaram `Prop_Hmd_SupportsAppThrottling_Bool`. Com o frame gen ligado, o proxy declara no headset (o log mostra o valor que o driver tinha) e segura o vsync ele mesmo, como o Lossless Scaling faz no monitor: o jogo roda numa fração dos Hz e o proxy gera o resto. Ligar o frame gen com o SteamVR aberto também vale; desligar devolve o valor do driver.
+- Com a trava declarada pelo proxy, o driver nunca recebe trava > 0: sem frame gerado (aquecendo, desligado, quadro repetido), o proxy segura os vsyncs sozinho, como o ALVR, em vez de deixar o jogo previsto à frente com o headset a taxa cheia.
+- O ritmo dos frames gerados vem dos Hz do headset (`Prop_DisplayFrequency_Float`); o Pico não manda `VsyncEvent`.
 
 ### Adicionado
 - Log e aba Desempenho dizem por que o frame gen não está gerando: quadros por segundo chegando, quantos repetidos e se há trava.
+- O log diz em qual GPU o motor do frame gen abriu.
 
 ## [0.2.7-alpha] - 2026-11-01
 
