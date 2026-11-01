@@ -114,6 +114,17 @@ void Media(double &media, double amostra) {
 }
 } // namespace
 
+// Um handle novo pode reaproveitar o valor de um destruído: o motor tem de esquecer a
+// textura aberta por ele. Chamado depois do Destroy real, com m_mutexConjuntos.
+static void Enfileirar(vr::SharedTextureHandle_t *fila, uint32_t &n, uint32_t max, bool &tudo,
+                       const vr::SharedTextureHandle_t (&h)[3]) {
+    for (vr::SharedTextureHandle_t x : h) {
+        if (!x) continue;
+        if (n < max) fila[n++] = x;
+        else tudo = true;
+    }
+}
+
 void DirectModeWrapper::CreateSwapTextureSet(uint32_t pid, const SwapTextureSetDesc_t *d, SwapTextureSet_t *out) {
     m_real->CreateSwapTextureSet(pid, d, out);
     if (d && out) {
@@ -125,21 +136,14 @@ void DirectModeWrapper::CreateSwapTextureSet(uint32_t pid, const SwapTextureSetD
         std::lock_guard<std::mutex> lock(m_mutexConjuntos);
         uint32_t i = 0;
         while (i < m_nConjuntos && m_conjuntos[i].h[0]) ++i; // reaproveita vaga de um destruído
-        if (i == kMaxConjuntos) i = 0;                         // cheio: o mais antigo sai
-        else if (i == m_nConjuntos) ++m_nConjuntos;
+        if (i == kMaxConjuntos) { // cheio: o mais antigo sai (e o motor solta o que abriu dele)
+            i = 0;
+            Enfileirar(m_esquecer, m_nEsquecer, kMaxEsquecer, m_esquecerTudo, m_conjuntos[0].h);
+        } else if (i == m_nConjuntos) {
+            ++m_nConjuntos;
+        }
         m_conjuntos[i] = {{out->rSharedTextureHandles[0], out->rSharedTextureHandles[1], out->rSharedTextureHandles[2]},
                           *d, out->unTextureFlags, pid};
-    }
-}
-
-// Um handle novo pode reaproveitar o valor de um destruído: o motor tem de esquecer a
-// textura aberta por ele. Chamado depois do Destroy real, com m_mutexConjuntos.
-static void Enfileirar(vr::SharedTextureHandle_t *fila, uint32_t &n, uint32_t max, bool &tudo,
-                       const vr::SharedTextureHandle_t (&h)[3]) {
-    for (vr::SharedTextureHandle_t x : h) {
-        if (!x) continue;
-        if (n < max) fila[n++] = x;
-        else tudo = true;
     }
 }
 
@@ -176,7 +180,7 @@ void DirectModeWrapper::DestroyAllSwapTextureSets(uint32_t pid) {
 }
 
 // Na thread do Present: solta o que foi destruído. Só zera o histórico se a textura
-// da cena (ou a de saída) estava entre elas.
+// da cena estava entre elas; se for de outra camada, só não reenvia mais as camadas guardadas.
 void DirectModeWrapper::Esquecidos() {
     vr::SharedTextureHandle_t fila[kMaxEsquecer];
     uint32_t n;
@@ -190,20 +194,30 @@ void DirectModeWrapper::Esquecidos() {
         m_esquecerTudo = false;
     }
     if (!n && !tudo) return;
-    bool historico = tudo;
+    bool historico = tudo, camada = false;
     for (uint32_t i = 0; i < n; ++i) {
         if (MotorOk()) m_fg.Esquecer(fila[i]);
-        for (uint32_t e = 0; e < 2 && m_nUltimas; ++e) historico |= fila[i] == m_ultimas[0][e].hTexture;
+        for (uint32_t c = 0; c < m_nUltimas; ++c)
+            for (uint32_t e = 0; e < 2; ++e)
+                if (fila[i] == m_ultimas[c][e].hTexture) (c == 0 ? historico : camada) = true;
     }
     if (historico) {
         if (MotorOk()) m_fg.Reiniciar();
-        m_nUltimas = 0;
         m_pendente = false;
+        m_nUltimas = 0;
+    } else if (camada) {
+        m_nUltimas = 1; // fica só a cena: os overlays voltam no próximo quadro real
     }
 }
 
 void DirectModeWrapper::GetNextSwapTextureSetIndex(vr::SharedTextureHandle_t handles[2], uint32_t (*pIndices)[2]) {
     m_real->GetNextSwapTextureSetIndex(handles, pIndices);
+}
+
+// O compositor pode copiar o mesmo quadro para outra das 3 texturas do swap set.
+bool DirectModeWrapper::MesmoConjunto(vr::SharedTextureHandle_t a, vr::SharedTextureHandle_t b) {
+    Conjunto x{}, y{};
+    return a == b || (AcharConjunto(a, &x) && AcharConjunto(b, &y) && x.h[0] == y.h[0]);
 }
 
 bool DirectModeWrapper::AcharConjunto(vr::SharedTextureHandle_t h, Conjunto *out) {
@@ -434,12 +448,13 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
     uint32_t nc = m_nCamadas;
     m_nCamadas = 0;
     const Camada &cena = m_camadas[0];
-    // Quadro repetido = mesma pose de render. A textura não serve: o compositor pode
-    // copiar o mesmo quadro para outra textura do swap set a cada vsync.
-    // ponytail: com o tracking parado (pose idêntica bit a bit) um quadro novo do jogo
-    // passa por repetido; no máximo divisor-1 vezes seguidas, depois o original volta.
+    // Quadro repetido = mesma pose de render no mesmo swap set (a textura exata não serve:
+    // o compositor pode copiar o quadro para outra textura do set a cada vsync).
+    // ponytail: com o tracking congelado (pose idêntica bit a bit) um quadro novo do jogo
+    // passa por repetido; só os divisor-1 primeiros viram gerados, depois o original volta.
     bool novo = nc > 0 && (m_nUltimas == 0 ||
-                           std::memcmp(&cena[0].mHmdPose, &m_ultimas[0][0].mHmdPose, sizeof(vr::HmdMatrix34_t)) != 0);
+                           std::memcmp(&cena[0].mHmdPose, &m_ultimas[0][0].mHmdPose, sizeof(vr::HmdMatrix34_t)) != 0 ||
+                           !MesmoConjunto(cena[0].hTexture, m_ultimas[0][0].hTexture));
 
     // Quadro repetido pelo compositor (o jogo atrasou): troca pelo gerado, se estiver pronto.
     if (nc > 0 && !novo && EntregarGerado(m_camadas, nc)) {
@@ -525,6 +540,8 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     for (uint32_t k = 1; k <= extras; ++k) {
         m_real->PostPresent(&um);           // o driver espera o vsync do quadro anterior
         DormirAte(t0 + k * periodo - 0.001); // e o ritmo se mantém se ele voltar cedo
+        Esquecidos(); // um swap set pode ter sido destruído enquanto esperava
+        if (m_nUltimas == 0) return;        // não reenvia handle morto
         // O Present extra usa o sync do compositor: se ele não estiver livre, parar aqui
         // é melhor que arriscar o driver travado esperando por ele.
         if (!m_fg.Travar(m_sync)) {

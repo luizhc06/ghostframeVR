@@ -21,6 +21,18 @@ jobs:
       - name: Testar
         run: ctest --test-dir build --output-on-failure
 
+  linux-asan:
+    name: Testes (Linux, ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all"
+      - name: Compilar
+        run: cmake --build build -j
+      - name: Testar
+        run: ctest --test-dir build --output-on-failure
+
   app-core:
     name: App (lógica, Linux)
     runs-on: ubuntu-latest

@@ -18,7 +18,7 @@ add_library(ghostframe_proxy SHARED
     src/proxy/framegen.cpp
     src/proxy/framegen_ref.cpp
 )
-target_include_directories(ghostframe_proxy PRIVATE third_party/openvr)
+target_include_directories(ghostframe_proxy SYSTEM PRIVATE third_party/openvr)
 set_target_properties(ghostframe_proxy PROPERTIES OUTPUT_NAME ${GF_DRIVER_NAME} PREFIX "")
 if(WIN32)
     # d3dcompiler_47.dll é carregada na hora pelo framegen.cpp (sem ela o proxy ainda carrega).
@@ -71,12 +71,12 @@ endif()
 # ---- Testes (só fora do Windows: simulam SteamVR + driver Pico) ----
 if(NOT WIN32)
     add_library(fake_pico_real SHARED tests/fake_pico_driver.cpp)
-    target_include_directories(fake_pico_real PRIVATE third_party/openvr)
+    target_include_directories(fake_pico_real SYSTEM PRIVATE third_party/openvr)
     # O proxy procura "<nome>_real.so" ao lado dele mesmo.
     set_target_properties(fake_pico_real PROPERTIES OUTPUT_NAME ${GF_DRIVER_NAME}_real PREFIX "")
 
     add_executable(fake_vrserver tests/fake_vrserver.cpp)
-    target_include_directories(fake_vrserver PRIVATE third_party/openvr)
+    target_include_directories(fake_vrserver SYSTEM PRIVATE third_party/openvr)
     target_link_libraries(fake_vrserver PRIVATE ${CMAKE_DL_LIBS})
 
     add_test(NAME proxy_passthrough

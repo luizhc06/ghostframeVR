@@ -5,6 +5,7 @@
 
 #include <dlfcn.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -125,6 +126,8 @@ int main(int argc, char **argv) {
                 for (int c = 0; c < 4; ++c) e[olho].mHmdPose.m[r][c] = float(i / 2) + 0.01f * float(r * 4 + c);
         }
         dm8->SubmitLayer(e);
+        // Frame gen ligado: o quadro fica guardado até o Present (prova que passa pelo wrapper).
+        if (i == 0) CHECK(c8[2] == (std::getenv("GF_INI") ? 0 : 1));
         dm8->Present(0x77);
         iguais = iguais && std::memcmp(ultimo, e, sizeof(e)) == 0;
         const DM8::Throttling_t t{1, 2};
@@ -141,7 +144,8 @@ int main(int argc, char **argv) {
     dm8->GetFrameTiming(&ft8);
     CHECK(ft8.m_nNumFramePresents == 9 && ft8.m_nReprojectionFlags == vr::VRCompositor_ReprojectionMotion_Enabled);
     dm8->DestroySwapTextureSet(s8.rSharedTextureHandles[0]);
-    CHECK(c8[0] == 1 && c8[1] == 1 && c8[5] == 1 && c8[6] == 1); // Create, Destroy, Timing, NextIndex
+    dm8->DestroyAllSwapTextureSets(4242);
+    CHECK(c8[0] == 1 && c8[1] == 1 && c8[5] == 1 && c8[6] == 1 && c8[7] == 1); // Create, Destroy, Timing, NextIndex, DestroyAll
 
     // Plugin do compositor (vídeo dentro do vrcompositor.exe): o DirectMode dele também é embrulhado.
     auto *plugin = (vr::IVRCompositorPluginProvider *)factory(vr::IVRCompositorPluginProvider_Version, &rc);

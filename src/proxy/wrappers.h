@@ -84,6 +84,7 @@ private:
     static constexpr uint32_t kMaxCamadas = 16, kMaxConjuntos = 64;
 
     bool AcharConjunto(vr::SharedTextureHandle_t h, Conjunto *out);
+    bool MesmoConjunto(vr::SharedTextureHandle_t a, vr::SharedTextureHandle_t b);
     bool GarantirSaida(const Camada &cena);
     void LiberarSaida();
     bool Motor();

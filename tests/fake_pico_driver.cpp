@@ -14,7 +14,7 @@ enum { kPresentVD, kPresentDM, kSubmit, kActivate, kRunFrame, kInit, kCreateSwap
 using DM8 = vr::legado::IVRDriverDirectModeComponent;
 extern "C" __attribute__((visibility("default"))) int g_fake8[8];
 int g_fake8[8] = {};
-enum { k8Create, k8Destroy, k8Submit, k8Present, k8PostPresent, k8Timing, k8NextIndex };
+enum { k8Create, k8Destroy, k8Submit, k8Present, k8PostPresent, k8Timing, k8NextIndex, k8DestroyAll };
 extern "C" __attribute__((visibility("default"))) DM8::SubmitLayerPerEye_t g_ultimo8[2];
 DM8::SubmitLayerPerEye_t g_ultimo8[2] = {};
 extern "C" __attribute__((visibility("default"))) DM8::Throttling_t g_trava8;
@@ -49,6 +49,7 @@ public:
         o->unTextureFlags = vr::VRSwapTextureFlag_Shared_NTHandle;
     }
     void DestroySwapTextureSet(vr::SharedTextureHandle_t) override { g_fake8[k8Destroy]++; }
+    void DestroyAllSwapTextureSets(uint32_t pid) override { if (pid == 4242) g_fake8[k8DestroyAll]++; }
     void GetNextSwapTextureSetIndex(vr::SharedTextureHandle_t[2], uint32_t (*i)[2]) override {
         g_fake8[k8NextIndex]++; (*i)[0] = 1; (*i)[1] = 2;
     }
