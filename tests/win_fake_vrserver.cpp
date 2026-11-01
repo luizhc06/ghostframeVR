@@ -717,8 +717,8 @@ int main(int argc, char **argv) {
         CHECK(presents <= int(quadros * 1.5) + 2);
     }
 
-    // ---- f) driver cujo PostPresent demora 20 ms (como um que espera o próprio vsync): o proxy
-    // ainda gera, mas nunca segura o compositor até depois do próximo quadro do jogo. ----
+    // ---- f) driver cujo PostPresent demora 20 ms (como um que espera o próprio vsync), jogo a
+    // 1/3 dos Hz: cabe um gerado, e o proxy nunca segura o compositor até o próximo quadro. ----
     std::printf("\n== f) PostPresent do driver demorando 20 ms ==\n");
     {
         auto espera = Funcao<void (*)(int)>(hReal, "FakePico_EsperaPostPresent");
@@ -737,12 +737,12 @@ int main(int argc, char **argv) {
                 gerados += r.size() == 2 && r[1].doProxy;
                 if (segurou > maxSegurou) maxSegurou = segurou;
             }
-            gf::DormirAte(tv + 2 * kVsync);
+            gf::DormirAte(tv + 3 * kVsync);
         }
         if (espera) espera(0);
         std::printf("f) %d quadros: %d gerados (%.0f%%), compositor preso no máximo %.1f ms (próximo quadro em %.0f ms)\n",
-                    quadros, gerados, 100.0 * gerados / quadros, maxSegurou * 1000, 2 * kVsync * 1000);
-        CHECK(maxSegurou < 2 * kVsync - 0.002);
+                    quadros, gerados, 100.0 * gerados / quadros, maxSegurou * 1000, 3 * kVsync * 1000);
+        CHECK(maxSegurou < 3 * kVsync - 0.002);
         CHECK(gerados * 10 >= quadros * 5);
     }
 

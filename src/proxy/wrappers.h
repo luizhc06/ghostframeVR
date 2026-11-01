@@ -132,6 +132,7 @@ private:
     double m_credito = 0;
     double m_ultimoIntervalo = 0;  // intervalo do último par de quadros reais (sem média)
     double m_dPost = 0;            // média do tempo dentro do PostPresent do driver
+    double m_dPresent = 0;         // média do tempo do Present de um gerado (SubmitLayer + Present)
     double m_tSaida = 0, m_folga = 0.01; // saída do PostPresent no relógio e a folga até o quadro novo
     double m_relogioPausaAte = 0;  // o compositor esperou pelo proxy: relógio pausado até aqui
     void PostPresentReal(const Throttling_t *t);

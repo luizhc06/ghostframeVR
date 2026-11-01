@@ -399,6 +399,7 @@ bool DirectModeWrapper::GerarAdiante(uint32_t k) {
 // Reenvia camadas (o real, quando o gerado não ficou pronto, ou o gerado) com a predição
 // da pose corrigida pelo tempo que já passou desde o quadro real.
 void DirectModeWrapper::Reenviar(const Camada *camadas, uint32_t n, double atraso) {
+    const double a = NowSeconds();
     for (uint32_t i = 0; i < n; ++i) {
         Camada c;
         std::memcpy(&c, &camadas[i], sizeof(Camada));
@@ -409,6 +410,8 @@ void DirectModeWrapper::Reenviar(const Camada *camadas, uint32_t n, double atras
         m_real->SubmitLayer(c);
     }
     m_real->Present(m_sync);
+    const double d = NowSeconds() - a;
+    if (d >= 0 && d < 0.1) m_dPresent = m_dPresent > 0 ? m_dPresent * 0.8 + d * 0.2 : d;
 }
 
 // Entrega o frame gerado pendente no lugar da camada da cena (as outras camadas,
@@ -613,8 +616,9 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
             // Gerado atrasado é pior que nenhum (o Pico já reprojeta), e nunca segurar o
             // compositor até depois do próximo quadro real (contando o PostPresent do driver).
             const double agora = NowSeconds(), prazo = t0 + k * periodo;
-            const double fim = (agora > prazo ? agora : prazo) + (m_dPost > 0.5 * periodo ? m_dPost : 0.5 * periodo);
-            if (agora > prazo - 0.0005 || fim > proxReal) {
+            // Quando sairíamos: o Present do gerado mais o PostPresent do driver (medidos), + 1 ms.
+            const double fim = (agora > prazo ? agora : prazo) + m_dPresent + m_dPost;
+            if (agora > prazo - 0.0005 || fim + 0.001 > proxReal) {
                 m_tSaida = NowSeconds();
                 return;
             }
@@ -657,7 +661,7 @@ void DirectModeWrapper::PostPresentReal(const Throttling_t *t) {
     const double a = NowSeconds();
     m_real->PostPresent(t);
     const double d = NowSeconds() - a;
-    if (d >= 0 && d < 0.1) m_dPost = m_dPost > 0 ? m_dPost * 0.95 + d * 0.05 : d;
+    if (d >= 0 && d < 0.1) m_dPost = m_dPost > 0 ? m_dPost * 0.8 + d * 0.2 : d;
     g_estatFG.msPostPresent.store(float(m_dPost * 1000.0), std::memory_order_relaxed);
 }
 
