@@ -442,7 +442,7 @@ mod win {
         fs::create_dir_all(pasta_app()).map_err(|e| e.to_string())?;
         core::gravar_atomico(&backup_vrchat(), &Value::Object(backup).to_string()).map_err(|e| format!("backup: {e}"))?;
         for (a, v) in &mudar {
-            let (tipo, dados) = vrchat::Valor::Int(*v).para();
+            let (tipo, dados) = vrchat::valor_para(a, *v).para();
             for n in vrchat::nomes_do_ajuste(a, &contas) {
                 vrchat::reg::gravar(&n, tipo, &dados)?;
             }

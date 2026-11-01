@@ -48,6 +48,8 @@ pub struct Ajuste {
     pub id: &'static str,
     pub chave: &'static str,
     pub por_conta: bool,
+    /// Gravado como float (double de 8 bytes); a UI usa inteiros (ex.: metros).
+    pub float: bool,
     /// O que um VRChat recém-instalado grava (registro real): "desligar" o ajuste volta a isto.
     pub padrao: i32,
     /// Valor do Modo leve.
@@ -57,14 +59,19 @@ pub struct Ajuste {
 pub const AJUSTES: &[Ajuste] = &[
     // 5 não bloqueia, 4 bloqueia Very Poor, 3 bloqueia Poor e abaixo (Minimum Displayed Performance Rank).
     // O Modo leve usa 3 ("Medium"), o que o VRChat sugere na ajuda de desempenho.
-    Ajuste { id: "rank", chave: "VRC_AVATAR_PERFORMANCE_RATING_MINIMUM_TO_DISPLAY", por_conta: false, padrao: 5, leve: 3 },
-    Ajuste { id: "maxLigado", chave: "currentShowMaxNumberOfAvatarsEnabled", por_conta: true, padrao: 0, leve: 1 },
-    Ajuste { id: "maxAvatares", chave: "avatarProxyShowMaxNumber", por_conta: true, padrao: 80, leve: 15 },
+    Ajuste { id: "rank", chave: "VRC_AVATAR_PERFORMANCE_RATING_MINIMUM_TO_DISPLAY", por_conta: false, float: false, padrao: 5, leve: 3 },
+    // Avatar bloqueado por malha/skinned mesh/materiais/ossos vira o impostor (versão leve gerada pelo VRChat).
+    Ajuste { id: "impostor", chave: "VRC_IMPOSTOR_WHEN_AVAILABLE", por_conta: false, float: false, padrao: 1, leve: 1 },
+    Ajuste { id: "maxLigado", chave: "currentShowMaxNumberOfAvatarsEnabled", por_conta: true, float: false, padrao: 0, leve: 1 },
+    Ajuste { id: "maxAvatares", chave: "avatarProxyShowMaxNumber", por_conta: true, float: false, padrao: 80, leve: 15 },
+    // "Hide Avatar Beyond": metros (5 a 50 na interface; um VRChat novo grava 100 com o toggle desligado).
+    Ajuste { id: "distLigada", chave: "avatarProxyShowAtRangeToggle", por_conta: true, float: false, padrao: 0, leve: 0 },
+    Ajuste { id: "distancia", chave: "avatarProxyShowAtRange", por_conta: true, float: true, padrao: 100, leve: 100 },
     // GPU (sobra GPU para o frame gen): Quarter = 2, Low = 0, Low = 0, Disabled = 1.
-    Ajuste { id: "espelho", chave: "VRC_MIRROR_RESOLUTION", por_conta: false, padrao: 0, leve: 2 },
-    Ajuste { id: "sombras", chave: "SHADOW_QUALITY", por_conta: false, padrao: 2, leve: 0 },
-    Ajuste { id: "lod", chave: "LOD_QUALITY", por_conta: false, padrao: 1, leve: 0 },
-    Ajuste { id: "aa", chave: "VRC_ADVANCED_GRAPHICS_ANTIALIASING", por_conta: false, padrao: 4, leve: 1 },
+    Ajuste { id: "espelho", chave: "VRC_MIRROR_RESOLUTION", por_conta: false, float: false, padrao: 0, leve: 2 },
+    Ajuste { id: "sombras", chave: "SHADOW_QUALITY", por_conta: false, float: false, padrao: 2, leve: 0 },
+    Ajuste { id: "lod", chave: "LOD_QUALITY", por_conta: false, float: false, padrao: 1, leve: 0 },
+    Ajuste { id: "aa", chave: "VRC_ADVANCED_GRAPHICS_ANTIALIASING", por_conta: false, float: false, padrao: 4, leve: 1 },
 ];
 
 pub fn ajuste(id: &str) -> Option<&'static Ajuste> {
@@ -105,8 +112,14 @@ pub fn valor_atual(a: &Ajuste, contas: &[String], ler: &dyn Fn(&str) -> Option<V
     let por_conta = if contas.len() == 1 { nomes.get(1) } else { None };
     por_conta.and_then(|n| ler(n)).or_else(|| ler(&nomes[0])).and_then(|v| match v {
         Valor::Int(i) => Some(i),
+        Valor::Float(f) if f.is_finite() => Some(f.round() as i32),
         _ => None,
     })
+}
+
+/// O valor no formato que o VRChat grava para esse ajuste.
+pub fn valor_para(a: &Ajuste, v: i32) -> Valor {
+    if a.float { Valor::Float(f64::from(v)) } else { Valor::Int(v) }
 }
 
 /// Valores válidos de cada ajuste (o app recusa qualquer outro).
@@ -115,6 +128,8 @@ pub fn valido(id: &str, v: i32) -> bool {
         "rank" => (3..=5).contains(&v),
         "maxLigado" => v == 0 || v == 1,
         "maxAvatares" => (1..=80).contains(&v),
+        "impostor" | "distLigada" => v == 0 || v == 1,
+        "distancia" => (5..=50).contains(&v) || v == 100,
         "espelho" => v == 0 || v == 2,
         "sombras" => v == 0 || v == 2,
         "lod" => v == 0 || v == 1,
@@ -312,6 +327,15 @@ mod testes {
             assert!(valido(a.id, a.padrao), "{} padrão", a.id);
         }
         assert!(!valido("rank", 2) && !valido("maxAvatares", 0) && !valido("espelho", 1) && !valido("x", 0));
+        assert!(valido("distancia", 20) && !valido("distancia", 60));
+        // Distância vai como double, igual ao registro real (avatarProxyShowAtRange = 100.0).
+        let d = ajuste("distancia").unwrap();
+        assert_eq!(valor_para(d, 100).para(), (REG_DWORD, vec![0, 0, 0, 0, 0, 0, 0x59, 0x40]));
+        assert_eq!(valor_para(ajuste("impostor").unwrap(), 1), Valor::Int(1));
+        assert_eq!(nome("VRC_IMPOSTOR_WHEN_AVAILABLE"), "VRC_IMPOSTOR_WHEN_AVAILABLE_h287131121");
+        assert_eq!(nome("avatarProxyShowAtRange"), "avatarProxyShowAtRange_h3229000273");
+        assert_eq!(nome("avatarProxyShowAtRangeToggle"), "avatarProxyShowAtRangeToggle_h3274849731");
+        assert_eq!(valor_atual(d, &[], &|_| Some(Valor::Float(25.4))), Some(25));
     }
 
     #[test]
