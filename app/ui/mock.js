@@ -95,6 +95,10 @@ if (!window.__TAURI__) {
           Object.assign(vrcAjustes, a.valores); vrcBackup = true; return "VRChat ajustado: vale quando ele abrir.";
         }
         if (cmd === "vrchat_restaurar") { vrcAjustes = { ...vrcPadrao }; vrcBackup = false; return "Opções do VRChat de volta como eram."; }
+        if (cmd === "autoteste") {
+          await new Promise((r) => setTimeout(r, 1500));
+          return { passou: true, skip: null, gpu: "NVIDIA GeForce RTX 3060", resumo: [], falhas: [], gpuMsMedia: 1.4, gpuMsMax: 2.1, pctRepetidos: 98, pctTrava: 97, codigo: 0, segundos: 10.4 };
+        }
         if (cmd === "vrchat_opcoes_steam") {
           if (/steamaberta/.test(location.search)) throw "feche a Steam antes: aberta, ela regrava as opções de inicialização ao sair";
           const nossas = ["--process-priority=", "--main-thread-priority=", "--affinity="];
@@ -115,7 +119,7 @@ if (!window.__TAURI__) {
         const poses = serie((t) => [t, 500 + Math.random() * 4]);
         const escala = Math.sqrt(vrCfg.supersampleManual ? vrCfg.supersample : 1);
         return {
-          framegenDisponivel: on, alvoAuto: !cfg["app.alvo"], versao: "0.2.0-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
+          framegenDisponivel: on, autoteste: true, alvoAuto: !cfg["app.alvo"], versao: "0.2.0-alpha", dllEmbutida: true, pastaApp: "C:\\Users\\voce\\AppData\\Local\\ghostframeVR",
           processos: { steamvr: aberto },
           vrchat: { aberto: vrcAberto, steam: { aberta: /steamaberta/.test(location.search), opcoes: steamOpcoes }, jogo: { rodou: true, contas: 1, ajustes: { ...vrcAjustes }, temBackup: vrcBackup },
             energia: { alto: energiaAlto, nome: energiaAlto ? "Alto desempenho" : "Equilibrado" }, ...(/vrcerro/.test(location.search)

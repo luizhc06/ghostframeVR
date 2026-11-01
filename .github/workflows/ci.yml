@@ -59,6 +59,27 @@ jobs:
       # Saída inteira (-V): os números do frame gen ou o motivo do SKIP aparecem no log.
       - name: Testar ponta a ponta (proxy + Pico falso na GPU)
         run: ctest --test-dir build -C Release -V -R proxy_e2e
+      - name: Autoteste como o app roda (pasta temporária, CRT estático)
+        shell: pwsh
+        run: |
+          $dumpbin = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio" -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          foreach ($f in 'win_fake_vrserver.exe','driver_ghostframe_real.dll','driver_ghostframe.dll') {
+            $dep = & $dumpbin.FullName /dependents "build\Release\$f" | Out-String
+            if ($dep -match 'VCRUNTIME|MSVCP|ucrtbase') { $dep; throw "$f depende do redistribuível do Visual C++" }
+          }
+          # Os mesmos nomes que o app usa em %TEMP%\ghostframe-autoteste-<pid>.
+          $d = Join-Path $env:TEMP "ghostframe-autoteste-ci"
+          New-Item -ItemType Directory -Force $d | Out-Null
+          Copy-Item build\Release\driver_ghostframe.dll "$d\driver_ghostframe.dll"
+          Copy-Item build\Release\driver_ghostframe_real.dll "$d\driver_ghostframe_real.dll"
+          Copy-Item build\Release\win_fake_vrserver.exe "$d\autoteste.exe"
+          Push-Location $d
+          & .\autoteste.exe "$d\driver_ghostframe.dll" "$d\driver_ghostframe_real.dll" | Select-String -Pattern '^(adaptador|a\)|b\)|c\)|SKIP|FALHOU|TODOS|[0-9]+ FALHA)'
+          $codigo = $LASTEXITCODE
+          Pop-Location
+          if ($codigo -ne 0 -and $codigo -ne 77) { throw "autoteste saiu com $codigo" }
+
       - name: Conferir export HmdDriverFactory
         shell: pwsh
         run: |
@@ -74,6 +95,8 @@ jobs:
         working-directory: app
         env:
           GF_PROXY_DLL: ${{ github.workspace }}\build\Release\driver_ghostframe.dll
+          GF_AUTOTESTE_EXE: ${{ github.workspace }}\build\Release\win_fake_vrserver.exe
+          GF_AUTOTESTE_PICO: ${{ github.workspace }}\build\Release\driver_ghostframe_real.dll
         run: cargo build --release
       - uses: actions/upload-artifact@v4
         with:

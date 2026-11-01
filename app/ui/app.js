@@ -196,6 +196,34 @@ $$("#perfis button").forEach((b) => (b.onclick = async () => {
   }
 }));
 
+// ---------- autoteste: o teste ponta a ponta da CI, na GPU deste PC ----------
+$("#btn-autoteste").onclick = async (ev) => {
+  const b = ev.currentTarget, caixa = $("#fg-teste");
+  b.disabled = true;
+  texto(b, "Testando...");
+  caixa.hidden = false;
+  html(caixa, `<p class="nota">Rodando na GPU...</p>`);
+  try {
+    const r = await invoke("autoteste");
+    const ms = r.gpuMsMedia != null ? `${fmt(r.gpuMsMedia, 1)} ms por frame gerado (máx. ${fmt(r.gpuMsMax, 1)})` : "sem medida";
+    const linhas = r.skip ? [`<li class="falta"><b>pulou</b> ${esc(r.skip)}</li>`] : [
+      `<li class="${r.passou ? "ok" : "falta"}"><b>${r.passou ? "ok" : "falhou"}</b> ${r.passou ? "frame gen funcionando nesta GPU" : "o teste encontrou problemas"}</li>`,
+      `<li><b>gpu</b> ${esc(r.gpu || "?")}</li>`,
+      `<li><b>custo</b> ${esc(ms)}</li>`,
+      r.pctRepetidos != null ? `<li><b>sem trava</b> ${fmt(r.pctRepetidos)}% dos quadros repetidos trocados por gerados</li>` : "",
+      r.pctTrava != null ? `<li><b>com trava</b> ${fmt(r.pctTrava)}% dos quadros extras gerados</li>` : "",
+      ...(r.falhas || []).slice(0, 5).map((f) => `<li class="falta"><b>erro</b> ${esc(f)}</li>`),
+    ];
+    html(caixa, `<ul class="conferencia">${linhas.join("")}</ul>`);
+    toast(r.passou ? `Autoteste ok em ${fmt(r.segundos, 1)} s` : "O autoteste não passou: veja o resultado", !r.passou);
+  } catch (e) {
+    html(caixa, `<p class="erro-linha">${esc(String(e))}</p>`);
+  } finally {
+    b.disabled = false;
+    texto(b, "Testar agora");
+  }
+};
+
 // ---------- VRChat: opções de inicialização (só montadas para copiar) e config.json ----------
 let vrcInfo = null;
 function argsVrchat() {
@@ -460,6 +488,8 @@ function render(e) {
 
   // ----- painel -----
   const aberto = e.processos.steamvr;
+  $("#btn-autoteste").disabled = !e.autoteste;
+  $("#btn-autoteste").title = e.autoteste ? "" : "Este build não tem o autoteste (use o .exe da release)";
   // Abriu um app mais novo (ou o Pico restaurou a DLL dele): atualiza o proxy sozinho,
   // uma vez por execução, com o SteamVR fechado (o Windows pode pedir permissão).
   // Só sobe de versão, sem pedir administrador de surpresa; senão, avisa e o botão resolve.

@@ -27,6 +27,8 @@ jobs:
         working-directory: app
         env:
           GF_PROXY_DLL: ${{ github.workspace }}\build\Release\driver_ghostframe.dll
+          GF_AUTOTESTE_EXE: ${{ github.workspace }}\build\Release\win_fake_vrserver.exe
+          GF_AUTOTESTE_PICO: ${{ github.workspace }}\build\Release\driver_ghostframe_real.dll
         run: cargo build --release
 
       - name: Montar pacote
