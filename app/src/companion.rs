@@ -228,6 +228,7 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
             "supersample": f("steamvr", "supersampleScale", vr::Tipo::Float),
             "supersampleManual": f("steamvr", "supersampleManualOverride", vr::Tipo::Bool),
             "motionSmoothing": f("steamvr", "motionSmoothing", vr::Tipo::Bool),
+            "home": f("steamvr", "enableHomeApp", vr::Tipo::Bool),
             "trava": trava,
         });
 

@@ -9,6 +9,7 @@ mod companion;
 mod core;
 mod hud;
 mod vr;
+mod vrchat;
 
 #[cfg(not(windows))]
 fn main() {
@@ -23,7 +24,7 @@ fn main() {
 #[cfg(windows)]
 mod win {
     use crate::core::{self, Driver};
-    use crate::{companion, hud, vr};
+    use crate::{companion, hud, vr, vrchat};
     use serde_json::{json, Map, Value};
     use std::os::windows::process::CommandExt;
     use std::path::{Path, PathBuf};
@@ -58,6 +59,37 @@ mod win {
     }
     fn steamvr_aberto() -> bool {
         vr::processo_rodando("vrserver.exe")
+    }
+    /// %LocalAppdata%Low\VRChat\VRChat\config.json (doc do VRChat). None sem LOCALAPPDATA.
+    fn vrchat_config() -> Option<PathBuf> {
+        let l = local();
+        let pai = l.parent().filter(|_| l.is_absolute())?;
+        Some(pai.join("LocalLow").join("VRChat").join("VRChat").join("config.json"))
+    }
+    /// Conteúdo do config.json; "" se ainda não existe. Erro de leitura nunca vira "vazio":
+    /// senão o próximo gravar apagaria o arquivo do usuário.
+    fn ler_vrchat_config() -> Result<String, String> {
+        let p = vrchat_config().ok_or("não achei a pasta do usuário (LOCALAPPDATA)")?;
+        match fs::read_to_string(p) {
+            Ok(t) => Ok(t),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+            Err(e) => Err(format!("não consegui ler o config.json do VRChat ({e}): não mexi nele")),
+        }
+    }
+    /// Agendamento de GPU por hardware (HwSchMode: 2 ligado, 1 desligado). Só muda com
+    /// reinício do Windows: lido uma vez por execução do app, sem abrir janela.
+    fn hags() -> Option<bool> {
+        static HAGS: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+        *HAGS.get_or_init(|| {
+            let out = Command::new("reg")
+                .args(["query", r"HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers", "/v", "HwSchMode"])
+                .creation_flags(SEM_JANELA)
+                .output()
+                .ok()?;
+            let txt = String::from_utf8_lossy(&out.stdout);
+            let v = txt.split_whitespace().last()?.trim_start_matches("0x");
+            u32::from_str_radix(v, 16).ok().map(|n| n == 2)
+        })
     }
     /// Jogo da trava: o fixado pelo usuário ou o que está aberto no SteamVR agora.
     fn jogo(cfg: &Map<String, Value>, painel: &companion::Painel) -> String {
@@ -113,6 +145,26 @@ mod win {
             "steamvr": steamvr,
             "jogos": jogos,
             "pastaApp": pasta_app(),
+        });
+        let limitador = ler_vrchat_config().and_then(|t| core::vrc_limitador(&t));
+        let nomes = vrchat::reg::nomes();
+        let contas = vrchat::contas(&nomes);
+        let ler = |n: &str| vrchat::reg::ler(n).and_then(|(t, d)| vrchat::Valor::de(t, &d));
+        let ajustes: Map<String, Value> =
+            vrchat::AJUSTES.iter().map(|a| (a.id.to_string(), json!(vrchat::valor_atual(a, &contas, &ler)))).collect();
+        r["vrchat"] = json!({
+            "aberto": vr::processo_rodando("VRChat.exe"),
+            "limitador": limitador.as_ref().ok(),
+            "erroConfig": limitador.as_ref().err(),
+            "amd": core::cpu_amd(),
+            "threads": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
+            "hags": hags(),
+            "energia": plano_energia().map(|g| json!({
+                "alto": g == PLANO_ALTO || g == PLANO_MAXIMO,
+                "nome": match g.as_str() { PLANO_ALTO => "Alto desempenho", PLANO_MAXIMO => "Desempenho máximo", PLANO_EQUILIBRADO => "Equilibrado", _ => "outro" },
+            })),
+            // Opções do jogo no registro (vazio = o VRChat ainda não rodou neste usuário).
+            "jogo": { "rodou": !nomes.is_empty(), "contas": contas.len(), "ajustes": ajustes, "temBackup": backup_vrchat().exists() },
         });
         let p = c.painel.lock().unwrap_or_else(|e| e.into_inner());
         r["vr"] = p.vr.clone();
@@ -221,6 +273,7 @@ mod win {
             "supersample" => vec![s("steamvr", "supersampleScale", vr::Valor::Float(num()?.clamp(0.2, 5.0) as f32))],
             "supersampleManual" => vec![s("steamvr", "supersampleManualOverride", vr::Valor::Bool(sim()?))],
             "motionSmoothing" => vec![s("steamvr", "motionSmoothing", vr::Valor::Bool(sim()?))],
+            "home" => vec![s("steamvr", "enableHomeApp", vr::Valor::Bool(sim()?))],
             "trava" => {
                 if jogo.is_empty() {
                     return Err("Nenhum jogo aberto no SteamVR agora: abra o jogo ou escolha um na lista".into());
@@ -295,6 +348,132 @@ mod win {
         Ok(dir.display().to_string())
     }
 
+    /// Liga/desliga o limitador de partículas no config.json do VRChat (backup na 1ª vez).
+    #[tauri::command(async)]
+    fn vrchat_particulas(ligar: bool) -> Result<String, String> {
+        let p = vrchat_config().ok_or("não achei a pasta do usuário (LOCALAPPDATA)")?;
+        let texto = ler_vrchat_config()?;
+        let novo = core::vrc_com_limitador(&texto, ligar)?;
+        let pasta = p.parent().ok_or("caminho do VRChat inválido")?;
+        if !pasta.is_dir() {
+            return Err("não achei a pasta do VRChat: abra o VRChat uma vez antes".into());
+        }
+        let backup = p.with_extension("json.ghostframe-backup");
+        if !texto.is_empty() && !backup.exists() {
+            fs::write(&backup, &texto).map_err(|e| format!("backup do config.json: {e}"))?;
+        }
+        core::gravar_atomico(&p, &novo).map_err(|e| format!("config.json do VRChat: {e}"))?;
+        let quando = if vr::processo_rodando("VRChat.exe") { " Vale quando o VRChat abrir de novo." } else { "" };
+        Ok(format!("Limitador de partículas {}.{quando}", if ligar { "ligado" } else { "desligado" }))
+    }
+
+    // Planos de energia padrão do Windows (powercfg /list). O VRChat pede um plano "para
+    // uso pesado" em vez de economia; o app só troca quando o usuário clica.
+    const PLANO_ALTO: &str = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
+    const PLANO_EQUILIBRADO: &str = "381b4222-f694-41f0-9685-ff5bb260df2e";
+
+    /// Desempenho Máximo (Ultimate Performance) também conta como plano para uso pesado.
+    const PLANO_MAXIMO: &str = "e9a42b02-d5df-448d-aa00-03f14749eb61";
+
+    /// GUID do plano de energia ativo. O estado roda a cada 1 s: o powercfg só a cada 10 s.
+    /// O nome não é usado: a saída vem na página de código OEM e estraga acentos.
+    static PLANO: Mutex<Option<(std::time::Instant, Option<String>)>> = Mutex::new(None);
+    fn plano_energia() -> Option<String> {
+        let mut c = PLANO.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, v)) = c.as_ref().filter(|(t, _)| t.elapsed() < Duration::from_secs(10)) {
+            return v.clone();
+        }
+        let v = ler_plano_energia();
+        *c = Some((std::time::Instant::now(), v.clone()));
+        v
+    }
+    fn ler_plano_energia() -> Option<String> {
+        let out = Command::new("powercfg").arg("/getactivescheme").creation_flags(SEM_JANELA).output().ok()?;
+        let txt = String::from_utf8_lossy(&out.stdout);
+        Some(txt.split_whitespace().find(|p| p.len() == 36 && p.matches('-').count() == 4)?.to_lowercase())
+    }
+
+    #[tauri::command(async)]
+    fn plano_energia_usar(alto: bool) -> Result<String, String> {
+        let guid = if alto { PLANO_ALTO } else { PLANO_EQUILIBRADO };
+        let out = Command::new("powercfg").args(["/setactive", guid]).creation_flags(SEM_JANELA).output().map_err(|e| e.to_string())?;
+        *PLANO.lock().unwrap_or_else(|e| e.into_inner()) = None; // o próximo estado lê de novo
+        if !out.status.success() {
+            return Err(if alto {
+                "este PC não tem o plano Alto desempenho (comum em notebooks): escolha um plano de desempenho nas Configurações de energia".into()
+            } else {
+                "não consegui voltar ao plano Equilibrado".into()
+            });
+        }
+        Ok(format!("Plano de energia: {}.", if alto { "Alto desempenho" } else { "Equilibrado" }))
+    }
+
+    fn backup_vrchat() -> PathBuf {
+        pasta_app().join("vrchat-backup.json")
+    }
+    const VRCHAT_ABERTO: &str = "feche o VRChat antes: ele regrava essas opções quando fecha";
+
+    /// Grava opções do VRChat no registro, com o jogo fechado. Antes da 1ª mudança de cada
+    /// opção, guarda o valor de antes em vrchat-backup.json (Restaurar volta a ele).
+    #[tauri::command(async)]
+    fn vrchat_ajustar(valores: Map<String, Value>) -> Result<String, String> {
+        if vr::processo_rodando("VRChat.exe") {
+            return Err(VRCHAT_ABERTO.into());
+        }
+        let nomes = vrchat::reg::nomes();
+        if nomes.is_empty() {
+            return Err("abra o VRChat uma vez neste PC antes".into());
+        }
+        let contas = vrchat::contas(&nomes);
+        let mut mudar = Vec::new();
+        for (id, v) in &valores {
+            let a = vrchat::ajuste(id).ok_or(format!("opção desconhecida: {id}"))?;
+            let v = v.as_i64().and_then(|x| i32::try_from(x).ok()).filter(|x| vrchat::valido(id, *x));
+            mudar.push((a, v.ok_or(format!("valor inválido para {id}"))?));
+        }
+        let todos: Vec<String> = mudar.iter().flat_map(|(a, _)| vrchat::nomes_do_ajuste(a, &contas)).collect();
+        // Backup ilegível nunca é trocado por um novo: os valores de antes do app estão nele.
+        let mut backup = match core::ler_json(&backup_vrchat()).and_then(|v| v.as_object().cloned()) {
+            Some(b) => b,
+            None if backup_vrchat().exists() => return Err("vrchat-backup.json ilegível: não mexi no VRChat".into()),
+            None => Map::new(),
+        };
+        vrchat::completar_backup(&mut backup, &todos, &vrchat::reg::ler_cru)?;
+        fs::create_dir_all(pasta_app()).map_err(|e| e.to_string())?;
+        core::gravar_atomico(&backup_vrchat(), &Value::Object(backup).to_string()).map_err(|e| format!("backup: {e}"))?;
+        for (a, v) in &mudar {
+            let (tipo, dados) = vrchat::Valor::Int(*v).para();
+            for n in vrchat::nomes_do_ajuste(a, &contas) {
+                vrchat::reg::gravar(&n, tipo, &dados)?;
+            }
+        }
+        Ok("VRChat ajustado: vale quando ele abrir.".into())
+    }
+
+    /// Volta as opções do VRChat ao que eram antes do app mexer.
+    #[tauri::command(async)]
+    fn vrchat_restaurar() -> Result<String, String> {
+        if vr::processo_rodando("VRChat.exe") {
+            return Err(VRCHAT_ABERTO.into());
+        }
+        let backup = core::ler_json(&backup_vrchat()).and_then(|v| v.as_object().cloned()).ok_or("nada para restaurar")?;
+        for (n, antes) in vrchat::restauracao(&backup)? {
+            match antes {
+                Some((tipo, dados)) => vrchat::reg::gravar(&n, tipo, &dados)?,
+                None => vrchat::reg::apagar(&n)?,
+            }
+        }
+        fs::remove_file(backup_vrchat()).map_err(|e| e.to_string())?;
+        Ok("Opções do VRChat de volta como eram.".into())
+    }
+
+    /// Abre Configurações → Sistema → Tela → Gráficos do Windows (o app não muda sozinho).
+    #[tauri::command]
+    fn abrir_graficos_windows() {
+        // Windows 11: "Alterar configurações gráficas padrão", onde fica o HAGS.
+        let _ = Command::new("explorer").arg("ms-settings:display-advancedgraphics-default").spawn();
+    }
+
     #[tauri::command]
     fn abrir_pasta(caminho: String) {
         let p = PathBuf::from(caminho);
@@ -322,7 +501,8 @@ mod win {
                 }
             }))
             .invoke_handler(tauri::generate_handler![
-                estado, salvar_config, escolher_alvo, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta
+                estado, salvar_config, escolher_alvo, instalar, desinstalar, vr_set, hud_previa, relatorio, abrir_pasta,
+                vrchat_particulas, abrir_graficos_windows, vrchat_ajustar, vrchat_restaurar, plano_energia_usar
             ])
             .setup(move |app| {
                 let painel = Arc::new(Mutex::new(companion::Painel::default()));

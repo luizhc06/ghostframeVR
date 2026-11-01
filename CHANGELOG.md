@@ -4,6 +4,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.9-alpha] - 2026-11-01
+
+### Adicionado
+- Aba VRChat, sem tocar no processo do jogo (EAC):
+  - **Modo VRChat leve** (um clique, com o VRChat fechado): bloqueio de Poor e Very Poor (o "Medium" que o VRChat sugere), até 15 avatares, partículas limitadas, espelho Quarter, sombras e detalhe Low, sem anti-aliasing e o perfil Desempenho do ghostframe. **Restaurar** volta as opções do jogo como eram.
+  - Cada opção também tem controle próprio. Elas ficam no registro do VRChat (PlayerPrefs da Unity). Espelho, sombras, detalhe e anti-aliasing foram conferidos num VRChat real (menu x valor gravado); o bloqueio por rank e o limite de avatares por conta vêm de dumps públicos do registro. O app guarda o valor de antes da 1ª mudança.
+  - Opções de inicialização documentadas (prioridade, thread principal, afinidade só em AMD) para copiar na Steam; limitador de partículas no config.json com backup.
+  - Windows e SteamVR, como recomenda a ajuda de desempenho do VRChat: plano de energia (Equilibrado/Alto), agendamento de GPU por hardware (o VRChat recomenda desligar) e SteamVR Home.
+
 ## [0.2.8-alpha] - 2026-11-01
 
 ### Corrigido

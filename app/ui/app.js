@@ -176,12 +176,16 @@ const perfilAtual = (s) => Object.keys(PERFIS).find((n) =>
   Object.entries(PERFIS[n].cfg).every(([k, v]) => config[k] === v) &&
   (!s || Object.entries(PERFIS[n].vr).every(([k, v]) =>
     typeof v === "number" ? Math.abs(vrValor(s, k) - v) < 0.011 : vrValor(s, k) === v)));
-$$("#perfis button").forEach((b) => (b.onclick = async () => {
-  const p = PERFIS[b.dataset.perfil];
-  b.classList.add("ocupado");
+// Aplica um perfil; erro do SteamVR sobe para quem chamou.
+async function aplicarPerfil(nome) {
+  const p = PERFIS[nome];
   salvar(p.cfg);
+  for (const [chave, valor] of Object.entries(p.vr)) await invoke("vr_set", { chave, valor });
+}
+$$("#perfis button").forEach((b) => (b.onclick = async () => {
+  b.classList.add("ocupado");
   try {
-    for (const [chave, valor] of Object.entries(p.vr)) await invoke("vr_set", { chave, valor });
+    await aplicarPerfil(b.dataset.perfil);
     toast(`Perfil ${b.querySelector("b").textContent} aplicado`);
   } catch (e) {
     toast(String(e), true);
@@ -190,6 +194,68 @@ $$("#perfis button").forEach((b) => (b.onclick = async () => {
     atualizar();
   }
 }));
+
+// ---------- VRChat: opções de inicialização (só montadas para copiar) e config.json ----------
+let vrcInfo = null;
+function argsVrchat() {
+  const a = [];
+  if (config["vrchat.prioridade"] !== "0") a.push(`--process-priority=${config["vrchat.prioridade"]}`);
+  if (config["vrchat.thread"] !== "0") a.push(`--main-thread-priority=${config["vrchat.thread"]}`);
+  // Primeira metade das threads: o primeiro CCX num Ryzen de dois (a doc pede o primeiro CCX).
+  const metade = Math.floor((vrcInfo?.threads || 0) / 2);
+  if (vrcInfo?.amd && config["vrchat.afinidade"] === "1" && metade > 0)
+    a.push(`--affinity=${((1n << BigInt(metade)) - 1n).toString(16).toUpperCase()}`);
+  return a.join(" ");
+}
+$("#btn-vrc-copiar").onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($("#vrc-args").value);
+    toast("Copiado. Cole nas opções de inicialização do VRChat na Steam.");
+  } catch (e) {
+    toast("Não deu para copiar: selecione o texto e copie à mão.", true);
+  }
+};
+// Gravações em andamento: o estado de 1 s não desfaz o clique enquanto elas não acabam.
+let vrcGravando = 0;
+const gravandoVrc = async (f) => { vrcGravando++; try { return await f(); } finally { vrcGravando--; } };
+$("#vrc-particulas").onchange = (ev) => gravandoVrc(() => chamar("vrchat_particulas", { ligar: ev.target.checked }));
+$("#btn-graficos").onclick = () => chamar("abrir_graficos_windows");
+$$("#vrc-plano button").forEach((b) => (b.onclick = () => chamar("plano_energia_usar", { alto: b.dataset.alto === "1" }, b)));
+$("#vr-home").onchange = (ev) => vrSet("home", ev.target.checked);
+
+// Opções do jogo no registro (o backend recusa com o VRChat aberto e guarda o backup).
+const vrcAjustar = (valores) => gravandoVrc(() => chamar("vrchat_ajustar", { valores }));
+$$("#vrc-rank button").forEach((b) => (b.onclick = () => vrcAjustar({ rank: +b.dataset.valor })));
+$$("[data-vrc]").forEach((el) => (el.onchange = () =>
+  vrcAjustar({ [el.dataset.vrc]: +(el.checked ? el.dataset.sim : el.dataset.nao) })));
+$("#vrc-max-ligado").onchange = (ev) => vrcAjustar({ maxLigado: ev.target.checked ? 1 : 0 });
+$("#vrc-max").oninput = (ev) => {
+  const el = ev.target;
+  el._mexido = Date.now();
+  texto($("#vrc-max-valor"), el.value);
+  depois(el, () => vrcAjustar({ maxAvatares: +el.value }), 300);
+};
+$("#btn-vrc-restaurar").onclick = (ev) => chamar("vrchat_restaurar", {}, ev.target);
+// Modo leve: o que o VRChat recomenda para desempenho + o perfil Desempenho do ghostframe.
+// O jogo primeiro (se o VRChat estiver aberto, nada muda); depois partículas e perfil,
+// cada um por si: um erro num não esconde o que deu certo no outro.
+let vrPode = false; // SteamVR ao vivo ou arquivo disponível (o perfil mexe nele)
+$("#btn-vrc-leve").onclick = (ev) => gravandoVrc(async () => {
+  const b = ev.target, erros = [];
+  b.disabled = true;
+  try {
+    await invoke("vrchat_ajustar", { valores: { rank: 3, maxLigado: 1, maxAvatares: 15, espelho: 2, sombras: 0, lod: 0, aa: 1 } });
+    await invoke("vrchat_particulas", { ligar: true }).catch((e) => erros.push(String(e)));
+    if (framegenDisponivel && vrPode) await aplicarPerfil("desempenho").catch((e) => erros.push(String(e)));
+    else erros.push("perfil Desempenho não aplicado (frame gen ou SteamVR indisponível agora)");
+    toast(erros.length ? `Modo VRChat leve aplicado, exceto: ${erros.join("; ")}` : "Modo VRChat leve aplicado. Vale quando o VRChat abrir.", erros.length > 0);
+  } catch (e) {
+    toast(String(e), true);
+  } finally {
+    b.disabled = false;
+    atualizar();
+  }
+});
 
 // ---------- prévia do HUD: no máximo um pedido em voo, mais um na fila ----------
 let previaOcupada = false, previaDeNovo = false;
@@ -460,6 +526,50 @@ function render(e) {
     b.classList.toggle("ativo", b.dataset.perfil === atual);
     b.disabled = !pode || (PERFIS[b.dataset.perfil].cfg["framegen.ativo"] === "1" && !framegenDisponivel);
   });
+
+  // ----- VRChat -----
+  vrcInfo = e.vrchat || null;
+  $("#vrc-afinidade-linha").hidden = !vrcInfo?.amd;
+  const args = argsVrchat();
+  if ($("#vrc-args").value !== args) $("#vrc-args").value = args;
+  $("#btn-vrc-copiar").disabled = !args;
+  const lim = vrcInfo?.limitador;
+  if (!vrcGravando) $("#vrc-particulas").checked = !!lim;
+  $("#vrc-particulas").disabled = !vrcInfo || lim == null;
+  // HAGS: o VRChat recomenda desligado.
+  const hags = vrcInfo?.hags;
+  classe($("#vrc-hags"), "tag " + (hags ? "alerta" : hags === false ? "ok" : ""));
+  texto($("#vrc-hags"), hags ? "ligado" : hags === false ? "desligado" : "");
+  const en = vrcInfo?.energia;
+  classe($("#vrc-energia"), "tag " + (en ? (en.alto ? "ok" : "") : ""));
+  texto($("#vrc-energia"), en?.nome || "");
+  $$("#vrc-plano button").forEach((b) => b.classList.toggle("ativo", !!en && en.alto === (b.dataset.alto === "1")));
+  $("#vr-home").checked = !!s && (s.home ?? true); // ausente = padrão do SteamVR (ligado)
+  $("#vr-home").disabled = !pode;
+  vrPode = pode;
+
+  // Opções do jogo (registro): só com o VRChat fechado.
+  const jogo = vrcInfo?.jogo, aj = jogo?.ajustes || {};
+  const fechado = !!jogo?.rodou && !vrcInfo.aberto;
+  $("#vrc-aberto").hidden = !vrcInfo?.aberto;
+  texto($("#vrc-jogo-tag"), !vrcInfo ? "" : !jogo?.rodou ? "abra o VRChat uma vez" : "");
+  texto($("#vrc-erro"), vrcInfo?.erroConfig || "");
+  $("#btn-vrc-leve").disabled = !fechado;
+  $("#btn-vrc-restaurar").hidden = !jogo?.temBackup;
+  $("#btn-vrc-restaurar").disabled = !fechado;
+  $$("#vrc-rank button").forEach((b) => {
+    b.classList.toggle("ativo", String(aj.rank) === b.dataset.valor);
+    b.disabled = !fechado;
+  });
+  if (!vrcGravando) {
+    $$("[data-vrc]").forEach((el) => (el.checked = String(aj[el.dataset.vrc]) === el.dataset.sim));
+    $("#vrc-max-ligado").checked = aj.maxLigado === 1;
+  }
+  $$("[data-vrc], #vrc-max-ligado").forEach((el) => (el.disabled = !fechado));
+  const mx = $("#vrc-max");
+  mx.disabled = !fechado || aj.maxLigado !== 1;
+  if (!(Date.now() - (mx._mexido || 0) < 1500) && aj.maxAvatares != null) mx.value = aj.maxAvatares;
+  texto($("#vrc-max-valor"), aj.maxLigado === 1 ? String(mx.value) : "");
 
   // ----- HUD -----
   const erro = e.hud?.erro;
