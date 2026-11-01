@@ -564,7 +564,8 @@ int main(int argc, char **argv) {
             }
             ++jogo;
         }
-        std::printf("b) motor pronto em %.1f s\n", gf::NowSeconds() - t0);
+        if (fake.conjuntosDoProxy() > 0) std::printf("b) motor pronto em %.1f s\n", gf::NowSeconds() - t0);
+        else std::printf("b) motor não ficou pronto em %.0f s (veja FrameGen no log abaixo)\n", gf::NowSeconds() - t0);
         CHECK(fake.conjuntosDoProxy() > 0);
         if (fake.conjuntosDoProxy() == 0) {
             MostraLog(pastaProxy + "ghostframe.log");
