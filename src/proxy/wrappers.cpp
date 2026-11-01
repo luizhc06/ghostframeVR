@@ -80,6 +80,17 @@ bool VirtualDisplayWrapper::GetTimeSinceLastVsync(float *pfSeconds, uint64_t *pu
 // Dados que o frame gen precisa e que chegam por outros caminhos (host e HMD).
 namespace {
 std::atomic<double> g_periodoVsync{0.0}; // média dos intervalos entre VsyncEvent
+std::atomic<float> g_hzHeadset{0.0f};    // Prop_DisplayFrequency_Float (o Pico não manda VsyncEvent)
+// O proxy declarou a trava por jogo num headset cujo driver não declara: trava > 0 que o
+// SteamVR mandar é nossa e o driver não sabe segurar, então o proxy segura (fica até o fim).
+std::atomic<bool> g_travaDoProxy{false};
+
+double Periodo() {
+    const double p = g_periodoVsync.load();
+    if (p > 0) return p;
+    const float hz = g_hzHeadset.load();
+    return hz > 20 ? 1.0 / hz : 1.0 / 90.0;
+}
 std::mutex g_mutexProj;
 ProjecaoOlho g_proj[2];
 std::atomic<bool> g_temProj{false};
@@ -420,6 +431,7 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
                 (unsigned long long)syncTexture, layers);
     m_presentRate.Tick();
     g_estatFG.presents.fetch_add(1, std::memory_order_relaxed);
+    m_tPresent = NowSeconds();
 
     bool fg = m_quadroComFG;
     m_quadroComFG = false;
@@ -514,40 +526,45 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     if (chamadas++ < kVerboseCalls)
         GF_LOG("DirectMode::PostPresent throttle=%u predict=%u", trava, t ? t->nAdditionalFramesToPredict : 0);
     g_estatFG.trava = trava;
-    if (!m_ultimoFoiNovo || trava == 0 || m_desistiu) {
+    const bool novo = m_ultimoFoiNovo;
+    m_ultimoFoiNovo = false;
+    const bool nossa = g_travaDoProxy.load(std::memory_order_relaxed);
+    if (trava == 0 || (!nossa && (!novo || m_desistiu))) {
         m_real->PostPresent(t);
         return;
     }
     // Trava do SteamVR (jogo a 1/(N+1) da taxa): em vez de o driver esperar N vsyncs de
     // uma vez, espera um por vez e entrega um frame em cada um. O protocolo fica sempre
     // Present -> PostPresent: se o gerado não estiver pronto, vai o real de novo.
-    m_ultimoFoiNovo = false;
-    uint32_t extras = trava < 3 ? trava : 3;
-    if (m_divisor != extras + 1) {
+    const Throttling_t um{0, t->nAdditionalFramesToPredict};
+    const double periodo = Periodo(), t0 = m_tPresent;
+    // Trava nossa sem frame para entregar: segura os N+1 vsyncs como o ALVR (o driver não
+    // segura e o jogo está sendo previsto N quadros à frente).
+    auto segurar = [&] { DormirAte(t0 + (trava + 1) * periodo - 0.001); };
+    const uint32_t extras = trava < 3 ? trava : 3;
+    if (novo && !m_desistiu && m_divisor != extras + 1) {
         m_divisor = extras + 1;
         if (m_pendente && m_divisorPendente != m_divisor) {
             m_pendente = false;
             GerarAdiante(1); // dá tempo: a GPU tem um vsync inteiro
         }
     }
-    if (!m_pendente || m_nUltimas == 0) { // aquecendo: nada para entregar ainda
-        m_real->PostPresent(t);
+    if (!novo || m_desistiu || !m_pendente || m_nUltimas == 0) { // desligado, aquecendo ou repetido
+        if (!nossa) return m_real->PostPresent(t);
+        m_real->PostPresent(&um);
+        segurar();
         return;
     }
-    double periodo = g_periodoVsync.load();
-    if (periodo <= 0) periodo = m_intervaloPresent > 0 ? m_intervaloPresent / (extras + 1) : 1.0 / 90.0;
-    const Throttling_t um{0, t->nAdditionalFramesToPredict};
-    const double t0 = m_tUltimoPresent;
     for (uint32_t k = 1; k <= extras; ++k) {
         m_real->PostPresent(&um);           // o driver espera o vsync do quadro anterior
         DormirAte(t0 + k * periodo - 0.001); // e o ritmo se mantém se ele voltar cedo
         Esquecidos(); // um swap set pode ter sido destruído enquanto esperava
-        if (m_nUltimas == 0) return;        // não reenvia handle morto
+        if (m_nUltimas == 0) return segurar(); // não reenvia handle morto
         // O Present extra usa o sync do compositor: se ele não estiver livre, parar aqui
         // é melhor que arriscar o driver travado esperando por ele.
         if (!m_fg.Travar(m_sync)) {
             Falhou("syncTexture ocupado no PostPresent");
-            return;
+            return segurar();
         }
         m_fg.Destravar();
         if (EntregarGerado(m_ultimas, m_nUltimas)) {
@@ -564,6 +581,7 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
         }
     }
     m_real->PostPresent(&um);
+    if (trava > extras) segurar(); // trava acima de 3: o resto só espera
 }
 
 void DirectModeWrapper::GetFrameTiming(vr::DriverDirectMode_FrameTiming *ft) {
@@ -646,6 +664,7 @@ void Frente008::PostPresent(const Throttling_t *t) {
 // ITrackedDeviceServerDriver
 
 // Propriedades do SteamVR (do contexto real, pedidas pelo próprio proxy no Init).
+// (LerHzDoHeadset e TravaPorJogo estão logo abaixo, com o estado do HMD.)
 static std::atomic<vr::IVRProperties *> g_props{nullptr};
 // Container do HMD e o valor que o driver tinha, para devolver ao desligar o frame gen.
 static std::mutex g_mutexTrava;
@@ -664,8 +683,17 @@ void TravaPorJogo(bool ligado) {
     const bool valor = ligado || g_travaOriginal;
     const vr::ETrackedPropertyError e = h.SetBoolProperty(g_hmdContainer, vr::Prop_Hmd_SupportsAppThrottling_Bool, valor);
     g_travaNossa = ligado;
+    if (ligado && !g_travaOriginal) g_travaDoProxy = true;
     GF_LOG("FRAMEGEN trava por jogo no headset: SupportsAppThrottling=%d (do driver: %d, erro=%d)",
            (int)valor, (int)g_travaOriginal, (int)e);
+}
+
+void LerHzDoHeadset() {
+    vr::IVRProperties *props = g_props.load();
+    std::lock_guard<std::mutex> lock(g_mutexTrava);
+    if (!props || g_hmdContainer == vr::k_ulInvalidPropertyContainer) return;
+    const float hz = vr::CVRPropertyHelpers(props).GetFloatProperty(g_hmdContainer, vr::Prop_DisplayFrequency_Float);
+    if (hz != g_hzHeadset.exchange(hz)) GF_LOG("Headset a %.1f Hz", hz);
 }
 
 DeviceWrapper::DeviceWrapper(vr::ITrackedDeviceServerDriver *real, const char *serial, vr::ETrackedDeviceClass cls)

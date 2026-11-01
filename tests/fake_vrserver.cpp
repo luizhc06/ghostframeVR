@@ -148,6 +148,7 @@ int main(int argc, char **argv) {
     // Jogo a meia taxa: cada pose vem duas vezes (o compositor repete o quadro). O que
     // chega no driver tem de ser byte a byte o que o SteamVR mandou, nos dois olhos.
     bool iguais = true;
+    double segurou = 0; // segundos dentro do PostPresent
     for (int i = 0; i < 40; ++i) {
         DM8::SubmitLayerPerEye_t e[2];
         std::memset(e, 0, sizeof(e));
@@ -166,11 +167,17 @@ int main(int argc, char **argv) {
         dm8->Present(0x77);
         iguais = iguais && std::memcmp(ultimo, e, sizeof(e)) == 0;
         const DM8::Throttling_t t{1, 2};
+        const auto t0 = std::chrono::steady_clock::now();
         dm8->PostPresent(&t);
+        segurou += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     }
     CHECK(iguais);
     CHECK(c8[2] == 40 && c8[3] == 40 && c8[4] == 40); // SubmitLayer, Present, PostPresent
-    CHECK(trava->nFramesToThrottle == 1 && trava->nAdditionalFramesToPredict == 2);
+    // Trava declarada pelo proxy (frame gen ligado): o driver nunca recebe trava > 0, quem segura
+    // os vsyncs é o proxy. Desligado, a trava vai como veio.
+    const bool fgLigado = std::getenv("GF_INI") != nullptr;
+    CHECK(trava->nFramesToThrottle == (fgLigado ? 0u : 1u) && trava->nAdditionalFramesToPredict == 2);
+    CHECK(fgLigado ? segurou >= 40 * 0.015 : segurou < 0.2); // 40 PostPresents de ~2 vsyncs (90 Hz)
     vr::SharedTextureHandle_t hs[2] = {s8.rSharedTextureHandles[0], s8.rSharedTextureHandles[0]};
     uint32_t idx[2] = {9, 9};
     dm8->GetNextSwapTextureSetIndex(hs, &idx);

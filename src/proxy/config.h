@@ -31,6 +31,8 @@ bool IniLigado(const char *texto, const char *secao, const char *chave);
 
 // Definida em wrappers.cpp: liga/desliga a trava por jogo no headset junto com o frame gen.
 void TravaPorJogo(bool ligado);
+// Definida em wrappers.cpp: relê os Hz do headset (Prop_DisplayFrequency_Float), fora do hot path.
+void LerHzDoHeadset();
 
 void IniciarFundo();
 void PararFundo();

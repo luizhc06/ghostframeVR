@@ -76,7 +76,8 @@ void LerOpcoes() {
 void Laco() {
     uint32_t reais0 = 0, gerados0 = 0, repetidos0 = 0;
     uint64_t presents0 = 0;
-    int semGerar = 0; // segundos com frame gen ligado, frames passando e nada gerado
+    int semGerar = 0;   // segundos com frame gen ligado, frames passando e nada gerado
+    uint32_t rep10 = 0; // repetidos no começo dessa janela
     bool explicou = false;
     int semFrames = 0; // segundos com o headset ativo e nenhum Present no proxy
     bool avisou = false;
@@ -86,6 +87,7 @@ void Laco() {
             if (g_cv.wait_for(lock, std::chrono::seconds(1), [] { return g_parar; })) return;
         }
         LerOpcoes();
+        LerHzDoHeadset();
 
         if (g_estatFG.presents.load() == 0 && g_estatFG.poses.load() > 0) ++semFrames;
         if (semFrames >= 15 && !avisou) {
@@ -107,11 +109,13 @@ void Laco() {
         }
         // Ligado, frames passando e nada gerado por 10 s: diz em qual etapa parou.
         semGerar = fg && p > presents0 && g == gerados0 ? semGerar + 1 : 0;
+        if (semGerar == 0) explicou = false; // voltou a gerar: o próximo problema também é explicado
+        if (semGerar == 1) rep10 = repetidos0;
         if (semGerar >= 10 && !explicou) {
             explicou = true;
             if (estado == FG_FALHOU)
                 GF_LOG("!! FRAMEGEN parado: o motor desistiu (veja a linha \"FRAMEGEN falhou\" acima)");
-            else if (rep == repetidos0 && g_estatFG.trava.load() == 0)
+            else if (rep == rep10 && g_estatFG.trava.load() == 0)
                 GF_LOG("!! FRAMEGEN sem o que gerar: em 10 s o SteamVR não repetiu nenhum quadro e não pediu trava "
                        "(jogo na taxa do headset, ou o SteamVR não repete quadros para este driver)");
             else
