@@ -118,6 +118,7 @@ private:
     bool m_ultimoFoiNovo = false;
     uint32_t m_repeticoes = 0;
     double m_tUltimoReal = 0, m_intervaloJogo = 0, m_tUltimoPresent = 0, m_intervaloPresent = 0;
+    double m_tPresent = 0;       // último Present do compositor, ligado ou não (base da trava)
     uint32_t m_divisor = 2;      // frames por frame real esperados (trava + 1); alfa = k / divisor
     Conjunto m_saida[2] = {};
     bool m_temSaida = false, m_saidaUnica = false, m_saidaNt = false;

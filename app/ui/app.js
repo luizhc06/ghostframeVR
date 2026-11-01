@@ -414,6 +414,12 @@ function render(e) {
   texto($("#fg-motivo"), semFrames ? "O driver do headset não está passando frames pelo proxy. Veja o resumo na aba Log e mande o relatório." : $("#fg-motivo").textContent);
   texto($("#fg-gerados"), fgv?.gerados != null ? fmt(fgv.gerados) : "--");
   texto($("#fg-gpu"), fgv?.gpuMs >= 0 ? fmt(fgv.gpuMs, 1) : "--");
+  // Por que não está gerando, com os números que o proxy manda a cada segundo.
+  texto($("#fg-diag"), !fgv || fgv.gerados > 0 ? ""
+    : fgv.estado === "falhou" ? "O motor desistiu. O motivo está na aba Log."
+    : fgv.presents > 0 && !fgv.repetidos && !fgv.trava
+      ? `Nada para gerar: ${fmt(fgv.presents)} quadros/s chegando, nenhum repetido e sem trava do SteamVR.`
+    : fgv.repetidos > 0 ? `${fmt(fgv.repetidos)} quadros/s para trocar, nenhum gerado ainda (${fgv.estado}).` : "");
 
   // Ao vivo com o SteamVR conectado; pelo arquivo só com ele fechado (ele regrava ao sair).
   const s = vr?.config ?? e.steamvr;

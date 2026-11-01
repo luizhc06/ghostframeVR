@@ -17,6 +17,7 @@ enum EstadoFG : int { FG_DESLIGADO, FG_ESPERANDO, FG_PRONTO, FG_FALHOU };
 
 struct EstatFG {
     std::atomic<uint32_t> reais{0}, gerados{0}, falhas{0};
+    std::atomic<uint32_t> repetidos{0}; // quadros que o compositor repetiu (o jogo atrasou)
     std::atomic<uint32_t> trava{0};  // framesToThrottle visto no último PostPresent
     std::atomic<float> msGpu{-1.0f};
     // Diagnóstico: headset mandando poses sem nenhum frame passar pelo proxy.
@@ -27,6 +28,11 @@ extern EstatFG g_estatFG;
 
 // Lê "[secao] chave=valor" de um ini já carregado em memória. Exposto para teste.
 bool IniLigado(const char *texto, const char *secao, const char *chave);
+
+// Definida em wrappers.cpp: liga/desliga a trava por jogo no headset junto com o frame gen.
+void TravaPorJogo(bool ligado);
+// Definida em wrappers.cpp: relê os Hz do headset (Prop_DisplayFrequency_Float), fora do hot path.
+void LerHzDoHeadset();
 
 void IniciarFundo();
 void PararFundo();

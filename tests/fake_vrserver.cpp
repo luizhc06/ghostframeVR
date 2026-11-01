@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
+#include <thread>
 
 namespace {
 
@@ -31,11 +33,32 @@ public:
     void SetRecommendedRenderTargetSize(uint32_t, uint32_t, uint32_t) override {}
 } g_host;
 
+// Propriedades: o teste confere se o proxy habilitou a trava por jogo no HMD.
+int g_travaPorJogo = -1; // -1 = ninguém escreveu
+class Props : public vr::IVRProperties {
+public:
+    vr::ETrackedPropertyError ReadPropertyBatch(vr::PropertyContainerHandle_t, vr::PropertyRead_t *b, uint32_t n) override {
+        for (uint32_t i = 0; i < n; ++i) b[i].eError = vr::TrackedProp_UnknownProperty;
+        return vr::TrackedProp_Success;
+    }
+    vr::ETrackedPropertyError WritePropertyBatch(vr::PropertyContainerHandle_t c, vr::PropertyWrite_t *b, uint32_t n) override {
+        for (uint32_t i = 0; i < n; ++i) {
+            b[i].eError = vr::TrackedProp_Success;
+            if (c == 77 && b[i].prop == vr::Prop_Hmd_SupportsAppThrottling_Bool && b[i].writeType == vr::PropertyWrite_Set)
+                g_travaPorJogo = *static_cast<bool *>(b[i].pvBuffer) ? 1 : 0;
+        }
+        return vr::TrackedProp_Success;
+    }
+    const char *GetPropErrorNameFromEnum(vr::ETrackedPropertyError) override { return ""; }
+    vr::PropertyContainerHandle_t TrackedDeviceToPropertyContainer(vr::TrackedDeviceIndex_t d) override { return d == 0 ? 77 : 0; }
+} g_props;
+
 class Ctx : public vr::IVRDriverContext {
 public:
     void *GetGenericInterface(const char *v, vr::EVRInitError *e) override {
         if (e) *e = vr::VRInitError_None;
         if (!std::strcmp(v, vr::IVRServerDriverHost_Version)) return &g_host;
+        if (!std::strcmp(v, vr::IVRProperties_Version)) return &g_props;
         if (e) *e = vr::VRInitError_Init_InterfaceNotFound;
         return nullptr;
     }
@@ -63,6 +86,18 @@ int main(int argc, char **argv) {
     CHECK(g_addedHmd != nullptr);
     if (!g_addedHmd) return 1;
     CHECK(g_addedHmd->Activate(0) == vr::VRInitError_None);
+    // Frame gen ligado: o HMD passa a aceitar a trava por jogo; desligado, nada muda.
+    CHECK(g_travaPorJogo == (std::getenv("GF_INI") ? 1 : -1));
+    if (const char *ini = std::getenv("GF_INI")) {
+        // Desligar no app (o ini é relido a cada 1 s) devolve o valor do driver; religar, liga.
+        auto gravar = [ini](const char *v) { FILE *f = std::fopen(ini, "wb"); if (f) { std::fputs(v, f); std::fclose(f); } };
+        gravar("[framegen]\nativo = 0\n");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        CHECK(g_travaPorJogo == 0);
+        gravar("; teste\n[framegen]\nativo = 1\n");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        CHECK(g_travaPorJogo == 1);
+    }
 
     auto *vd = (vr::IVRVirtualDisplay *)g_addedHmd->GetComponent(vr::IVRVirtualDisplay_Version);
     auto *dm = (vr::IVRDriverDirectModeComponent *)g_addedHmd->GetComponent(vr::IVRDriverDirectModeComponent_Version);
@@ -113,6 +148,7 @@ int main(int argc, char **argv) {
     // Jogo a meia taxa: cada pose vem duas vezes (o compositor repete o quadro). O que
     // chega no driver tem de ser byte a byte o que o SteamVR mandou, nos dois olhos.
     bool iguais = true;
+    double segurou = 0; // segundos dentro do PostPresent
     for (int i = 0; i < 40; ++i) {
         DM8::SubmitLayerPerEye_t e[2];
         std::memset(e, 0, sizeof(e));
@@ -131,11 +167,17 @@ int main(int argc, char **argv) {
         dm8->Present(0x77);
         iguais = iguais && std::memcmp(ultimo, e, sizeof(e)) == 0;
         const DM8::Throttling_t t{1, 2};
+        const auto t0 = std::chrono::steady_clock::now();
         dm8->PostPresent(&t);
+        segurou += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     }
     CHECK(iguais);
     CHECK(c8[2] == 40 && c8[3] == 40 && c8[4] == 40); // SubmitLayer, Present, PostPresent
-    CHECK(trava->nFramesToThrottle == 1 && trava->nAdditionalFramesToPredict == 2);
+    // Trava declarada pelo proxy (frame gen ligado): o driver nunca recebe trava > 0, quem segura
+    // os vsyncs é o proxy. Desligado, a trava vai como veio.
+    const bool fgLigado = std::getenv("GF_INI") != nullptr;
+    CHECK(trava->nFramesToThrottle == (fgLigado ? 0u : 1u) && trava->nAdditionalFramesToPredict == 2);
+    CHECK(fgLigado ? segurou >= 40 * 0.015 : segurou < 0.2); // 40 PostPresents de ~2 vsyncs (90 Hz)
     vr::SharedTextureHandle_t hs[2] = {s8.rSharedTextureHandles[0], s8.rSharedTextureHandles[0]};
     uint32_t idx[2] = {9, 9};
     dm8->GetNextSwapTextureSetIndex(hs, &idx);
