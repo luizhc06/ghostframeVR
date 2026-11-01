@@ -136,7 +136,7 @@ if (!window.__TAURI__) {
             config: { ...vrCfg },
           } : null,
           auto: conectado
-            ? { recomendado: 2, multiplicador: 1, trava: 0, motivo: "frame gen indisponível" }
+            ? { recomendado: 2, multiplicador: 1, trava: 0, motivo: fgOn ? "jogo segura metade do Hz" : "frame gen indisponível, sem trava" }
             : { recomendado: 1, multiplicador: 1, trava: 0, motivo: aberto ? "headset não conectado" : "SteamVR fechado" },
           hud: { conectado: conectado && cfg["hud.ativo"] === "1" },
         };

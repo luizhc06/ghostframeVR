@@ -4,6 +4,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+## [0.2.5-alpha] - 2026-10-31
+
+### Mudado
+- O frame gen tem um lugar só: o card da aba Desempenho (Desligado / Auto / Manual), que agora mostra ao vivo o estado e quantos frames reais ele está pegando e quantos está gerando por segundo, além do custo de GPU. A barra repetida do Painel saiu; a opção da bandeja continua.
+
 ## [0.2.4-alpha] - 2026-10-31
 
 ### Corrigido
