@@ -28,7 +28,6 @@ using Microsoft::WRL::ComPtr;
 
 constexpr int kCache = 32;          // texturas abertas por handle: swap sets do compositor, saída e sync
 constexpr int kMedidas = 8;         // medidas de tempo em voo (lidas sem bloquear)
-constexpr DWORD kEsperaSyncMs = 10; // o compositor já soltou o sync antes do Present; isto é só proteção
 
 // Layout igual ao cbuffer Params do HLSL (registradores de 16 bytes).
 struct Params {
@@ -301,6 +300,8 @@ struct FrameGen::Impl {
     ComPtr<ID3D11Device> dev;
     ComPtr<ID3D11Device1> dev1; // só para handles NT
     ComPtr<ID3D11DeviceContext> ctx;
+    ComPtr<ID3D11Texture2D> syncProprio; // keyed mutex nosso para os Presents dos gerados
+    vr::SharedTextureHandle_t hSyncProprio = 0;
     ComPtr<ID3D11ComputeShader> csLuma, csRotaciona, csBlocos, csSuaviza, csGera;
     ComPtr<ID3D11Buffer> cb;
     ComPtr<ID3D11Query> evento;
@@ -521,6 +522,29 @@ struct FrameGen::Impl {
         return true;
     }
 
+    // O driver faz AcquireSync(0)/ReleaseSync(0) no syncTexture de cada Present; o nosso fica
+    // sempre livre. Sem ele (falhou criar), os gerados usam o do compositor, como antes.
+    void CriaSyncProprio() {
+        D3D11_TEXTURE2D_DESC d{};
+        d.Width = d.Height = 1;
+        d.MipLevels = d.ArraySize = 1;
+        d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        d.SampleDesc.Count = 1;
+        d.Usage = D3D11_USAGE_DEFAULT;
+        d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        d.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+        ComPtr<IDXGIResource> r;
+        HANDLE h = nullptr;
+        if (SUCCEEDED(dev->CreateTexture2D(&d, nullptr, syncProprio.ReleaseAndGetAddressOf())) &&
+            SUCCEEDED(syncProprio.As(&r)) && SUCCEEDED(r->GetSharedHandle(&h)) && h) {
+            hSyncProprio = vr::SharedTextureHandle_t(reinterpret_cast<uintptr_t>(h));
+            GF_LOG("FrameGen: syncTexture próprio 0x%llx para os gerados", (unsigned long long)hSyncProprio);
+        } else {
+            syncProprio.Reset();
+            GF_LOG("FrameGen: sem syncTexture próprio, os gerados usam o do compositor");
+        }
+    }
+
     bool CriaFixos() {
         D3D11_BUFFER_DESC bd{};
         bd.ByteWidth = sizeof(Params);
@@ -583,6 +607,7 @@ bool FrameGen::Iniciar(bool warp) {
         m->dev.Reset();
         return false;
     }
+    m->CriaSyncProprio();
     // Qual GPU: as texturas do compositor só abrem no mesmo adaptador do SteamVR.
     char gpu[128] = "?";
     ComPtr<IDXGIDevice> dxgi;
@@ -595,6 +620,7 @@ bool FrameGen::Iniciar(bool warp) {
 }
 
 bool FrameGen::Iniciado() const { return m && m->ctx; }
+vr::SharedTextureHandle_t FrameGen::SyncProprio() const { return m ? m->hSyncProprio : 0; }
 
 void FrameGen::DefinirProjecao(int olho, const ProjecaoOlho &p) {
     if (!m || olho < 0 || olho > 1) return;
@@ -607,7 +633,7 @@ void FrameGen::DefinirProjecao(int olho, const ProjecaoOlho &p) {
     m->olhos[olho].proj = p;
 }
 
-bool FrameGen::Travar(vr::SharedTextureHandle_t sync) {
+bool FrameGen::Travar(vr::SharedTextureHandle_t sync, uint32_t esperaMs) {
     if (!Iniciado() || m->travado) return false;
     // Só handle legado: um NT do sync seria de outro processo (o compositor), e abrir o
     // valor aqui pegaria um objeto qualquer do vrserver.
@@ -619,7 +645,7 @@ bool FrameGen::Travar(vr::SharedTextureHandle_t sync) {
         return false;
     }
     // WAIT_TIMEOUT e WAIT_ABANDONED passam em SUCCEEDED(); só S_OK é a chave na mão.
-    HRESULT hr = km->AcquireSync(0, kEsperaSyncMs);
+    HRESULT hr = km->AcquireSync(0, esperaMs);
     if (hr != S_OK) {
         GF_LOG_1X("FrameGen: AcquireSync do sync falhou: 0x%08lx", (unsigned long)hr);
         return false;
@@ -794,7 +820,8 @@ FrameGen::~FrameGen() { delete m; }
 bool FrameGen::Iniciar(bool) { return false; }
 bool FrameGen::Iniciado() const { return false; }
 void FrameGen::DefinirProjecao(int, const ProjecaoOlho &) {}
-bool FrameGen::Travar(vr::SharedTextureHandle_t) { return false; }
+bool FrameGen::Travar(vr::SharedTextureHandle_t, uint32_t) { return false; }
+vr::SharedTextureHandle_t FrameGen::SyncProprio() const { return 0; }
 void FrameGen::Destravar() {}
 bool FrameGen::NovoFrame(const vr::SharedTextureHandle_t[2], const vr::VRTextureBounds_t[2], const vr::HmdMatrix34_t &,
                          bool) {

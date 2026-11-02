@@ -399,8 +399,12 @@ vr::SharedTextureHandle_t Vsync(Compositor &c, int jogo, uint32_t trava) {
     c.dm->SubmitLayer(e);
     g_tPresent = gf::NowSeconds(); // daqui em diante o tempo é do proxy e do driver
     c.dm->Present(c.hSync);
+    // Como o compositor do SteamVR (visto num log real com o Pico): já pega o sync para o
+    // próximo quadro e o segura enquanto o PostPresent roda. Gerado que dependesse dele travaria.
+    const bool segura = c.km->AcquireSync(0, 1000) == S_OK;
     const DM8::Throttling_t t{trava, 0};
     c.dm->PostPresent(&t);
+    if (segura) c.km->ReleaseSync(0);
     vr::SharedTextureHandle_t hs[2] = {c.h[0], c.h[0]};
     uint32_t prox[2] = {3, 3};
     c.dm->GetNextSwapTextureSetIndex(hs, &prox);

@@ -90,7 +90,7 @@ private:
     bool Motor();
     bool MotorOk() const { return m_motor.load() == 2; }
     void Esquecidos();
-    void Reenviar(const Camada *camadas, uint32_t n, double atraso);
+    void Reenviar(const Camada *camadas, uint32_t n, double atraso, vr::SharedTextureHandle_t sync);
     bool GerarAdiante(uint32_t k);
     bool EntregarGerado(const Camada *camadas, uint32_t n);
     void Falhou(const char *motivo);

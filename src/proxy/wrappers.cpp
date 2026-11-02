@@ -398,7 +398,7 @@ bool DirectModeWrapper::GerarAdiante(uint32_t k) {
 
 // Reenvia camadas (o real, quando o gerado não ficou pronto, ou o gerado) com a predição
 // da pose corrigida pelo tempo que já passou desde o quadro real.
-void DirectModeWrapper::Reenviar(const Camada *camadas, uint32_t n, double atraso) {
+void DirectModeWrapper::Reenviar(const Camada *camadas, uint32_t n, double atraso, vr::SharedTextureHandle_t sync) {
     const double a = NowSeconds();
     for (uint32_t i = 0; i < n; ++i) {
         Camada c;
@@ -409,7 +409,7 @@ void DirectModeWrapper::Reenviar(const Camada *camadas, uint32_t n, double atras
         }
         m_real->SubmitLayer(c);
     }
-    m_real->Present(m_sync);
+    m_real->Present(sync);
     const double d = NowSeconds() - a;
     if (d >= 0 && d < 0.1) m_dPresent = d > m_dPresent * 0.95 ? d : m_dPresent * 0.95;
 }
@@ -425,7 +425,13 @@ bool DirectModeWrapper::EntregarGerado(const Camada *camadas, uint32_t n) {
     todas[0][0].hTexture = m_saida[0].h[m_idxPendente];
     todas[0][1].hTexture = (m_saidaUnica ? m_saida[0] : m_saida[1]).h[m_idxPendente];
     todas[0][0].hDepthTexture = todas[0][1].hDepthTexture = 0; // o depth do real não vale para o gerado
-    Reenviar(todas, n, NowSeconds() - m_tUltimoPresent);
+    // O gerado é textura nossa, pronta (Concluido): vai com o syncTexture próprio, que está
+    // sempre livre. O do compositor fica ocupado enquanto ele prepara o próximo quadro (no
+    // PostPresent, sempre: 1091 falhas "syncTexture ocupado" num teste real com o Pico).
+    // As outras camadas (overlays) são do quadro real anterior; o compositor já desenha o
+    // próximo em outra textura do swap set.
+    const vr::SharedTextureHandle_t sp = m_fg.SyncProprio();
+    Reenviar(todas, n, NowSeconds() - m_tUltimoPresent, sp ? sp : m_sync);
     // Como o compositor faz depois de cada Present: o driver diz qual índice usar agora.
     vr::SharedTextureHandle_t hs[2] = {m_saida[0].h[0], (m_saidaUnica ? m_saida[0] : m_saida[1]).h[0]};
     uint32_t idx[2] = {3, 3};
@@ -634,13 +640,15 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
         DormirAte(t0 + k * periodo - 0.001); // e o ritmo se mantém se ele voltar cedo
         Esquecidos(); // um swap set pode ter sido destruído enquanto esperava
         if (m_nUltimas == 0) return segurar(); // não reenvia handle morto
-        // O Present extra usa o sync do compositor: se ele não estiver livre, parar aqui
-        // é melhor que arriscar o driver travado esperando por ele.
-        if (!m_fg.Travar(m_sync)) {
-            Falhou("syncTexture ocupado no PostPresent");
-            return segurar();
+        // Sem o syncTexture próprio, o gerado iria com o do compositor: se ele estiver
+        // ocupado, parar aqui é melhor que deixar o driver travado esperando por ele.
+        if (!m_fg.SyncProprio()) {
+            if (!m_fg.Travar(m_sync, 0)) {
+                Falhou("syncTexture ocupado no PostPresent");
+                return segurar();
+            }
+            m_fg.Destravar();
         }
-        m_fg.Destravar();
         if (EntregarGerado(m_ultimas, m_nUltimas)) {
             if (k < extras) GerarAdiante(k + 1);
             continue;
@@ -650,8 +658,12 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
             m_tSaida = NowSeconds();
             return;
         }
-        // Com trava: entrega o real de novo (o mesmo que o headset mostraria).
-        Reenviar(m_ultimas, m_nUltimas, NowSeconds() - t0);
+        // Com trava: entrega o real de novo (o mesmo que o headset mostraria). As texturas são
+        // do compositor: só com o sync dele livre; ocupado, o driver repete o quadro sozinho.
+        if (m_fg.Travar(m_sync, 0)) {
+            m_fg.Destravar();
+            Reenviar(m_ultimas, m_nUltimas, NowSeconds() - t0, m_sync);
+        }
         g_estatFG.falhas++;
         if (++m_semEntrega >= 120 && !m_desistiu) {
             m_desistiu = true;
