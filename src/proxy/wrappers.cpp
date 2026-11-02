@@ -272,7 +272,19 @@ void DirectModeWrapper::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) {
                     e.mHmdPose.m[0][3], e.mHmdPose.m[1][3], e.mHmdPose.m[2][3]);
         }
     }
-    if (primeira) m_quadroComFG = g_opcoes.framegen.load(std::memory_order_relaxed) && !m_desistiu;
+    if (primeira) {
+        // Desistiu (falhas seguidas, GPU ocupada, motor sem iniciar): depois de um tempo
+        // repassando tudo, tenta de novo sozinho. O frame gen não fica parado até religar.
+        if (m_desistiu && m_desistiuEm > 0 && NowSeconds() - m_desistiuEm > kTentarDeNovo) {
+            m_desistiu = false;
+            m_desistiuEm = 0;
+            m_falhasSeguidas = m_semEntrega = 0;
+            if (m_motor.load() == 3) m_motor = 0;
+            g_estatFG.estado = FG_ESPERANDO;
+            GF_LOG("FRAMEGEN tentando de novo depois de %.0f s", kTentarDeNovo);
+        }
+        m_quadroComFG = g_opcoes.framegen.load(std::memory_order_relaxed) && !m_desistiu;
+    }
     if (m_quadroComFG) {
         if (m_nCamadas < kMaxCamadas) {
             std::memcpy(&m_camadas[m_nCamadas++], &perEye, sizeof(Camada));
@@ -289,9 +301,10 @@ void DirectModeWrapper::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) {
 void DirectModeWrapper::Falhou(const char *motivo) {
     g_estatFG.falhas++;
     if (m_falhasSeguidas++ == 0) GF_LOG("FRAMEGEN falhou: %s (repassando o original)", motivo);
-    // Falha que se repete: desiste até o frame gen ser desligado e ligado de novo.
+    // Falha que se repete: para por kTentarDeNovo s (repassando tudo) e tenta de novo sozinho.
     if (m_falhasSeguidas >= 60 && !m_desistiu) {
         m_desistiu = true;
+        m_desistiuEm = NowSeconds();
         g_estatFG.estado = FG_FALHOU;
         GF_LOG("FRAMEGEN desativado depois de %u falhas seguidas: %s", m_falhasSeguidas, motivo);
     }
@@ -312,7 +325,8 @@ bool DirectModeWrapper::Motor() {
         });
         return false;
     case 3:
-        m_desistiu = true; // sem device D3D11 não há o que tentar
+        m_desistiu = true; // sem device D3D11: tenta iniciar de novo daqui a pouco
+        m_desistiuEm = NowSeconds();
         g_estatFG.estado = FG_FALHOU;
         return false;
     default: return false; // iniciando: repassa até ficar pronto
@@ -398,7 +412,7 @@ bool DirectModeWrapper::GerarAdiante(uint32_t k) {
 
 // Reenvia camadas (o real, quando o gerado não ficou pronto, ou o gerado) com a predição
 // da pose corrigida pelo tempo que já passou desde o quadro real.
-void DirectModeWrapper::Reenviar(const Camada *camadas, uint32_t n, double atraso) {
+void DirectModeWrapper::Reenviar(const Camada *camadas, uint32_t n, double atraso, vr::SharedTextureHandle_t sync) {
     const double a = NowSeconds();
     for (uint32_t i = 0; i < n; ++i) {
         Camada c;
@@ -409,7 +423,7 @@ void DirectModeWrapper::Reenviar(const Camada *camadas, uint32_t n, double atras
         }
         m_real->SubmitLayer(c);
     }
-    m_real->Present(m_sync);
+    m_real->Present(sync);
     const double d = NowSeconds() - a;
     if (d >= 0 && d < 0.1) m_dPresent = d > m_dPresent * 0.95 ? d : m_dPresent * 0.95;
 }
@@ -425,7 +439,13 @@ bool DirectModeWrapper::EntregarGerado(const Camada *camadas, uint32_t n) {
     todas[0][0].hTexture = m_saida[0].h[m_idxPendente];
     todas[0][1].hTexture = (m_saidaUnica ? m_saida[0] : m_saida[1]).h[m_idxPendente];
     todas[0][0].hDepthTexture = todas[0][1].hDepthTexture = 0; // o depth do real não vale para o gerado
-    Reenviar(todas, n, NowSeconds() - m_tUltimoPresent);
+    // O gerado é textura nossa, pronta (Concluido): vai com o syncTexture próprio, que está
+    // sempre livre. O do compositor fica ocupado enquanto ele prepara o próximo quadro (no
+    // PostPresent, sempre: 1091 falhas "syncTexture ocupado" num teste real com o Pico).
+    // As outras camadas (overlays) são do quadro real anterior; o compositor já desenha o
+    // próximo em outra textura do swap set.
+    const vr::SharedTextureHandle_t sp = m_fg.SyncProprio();
+    Reenviar(todas, n, NowSeconds() - m_tUltimoPresent, sp ? sp : m_sync);
     // Como o compositor faz depois de cada Present: o driver diz qual índice usar agora.
     vr::SharedTextureHandle_t hs[2] = {m_saida[0].h[0], (m_saidaUnica ? m_saida[0] : m_saida[1]).h[0]};
     uint32_t idx[2] = {3, 3};
@@ -565,8 +585,13 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
         }
     }
 
+    // O Present de cada quadro real também mede o driver: o pior caso que a guarda do relógio
+    // usa vai esquecendo um Present lento, mesmo sem nenhum gerado entregue.
+    const double ap = NowSeconds();
     for (uint32_t i = 0; i < nc; ++i) m_real->SubmitLayer(m_camadas[i]);
     m_real->Present(syncTexture);
+    const double dp = NowSeconds() - ap;
+    if (dp >= 0 && dp < 0.1) m_dPresent = dp > m_dPresent * 0.95 ? dp : m_dPresent * 0.95;
     m_ultimoFoiNovo = novo;
     if (novo && m_nUltimas) GerarAdiante(1);
 }
@@ -634,13 +659,15 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
         DormirAte(t0 + k * periodo - 0.001); // e o ritmo se mantém se ele voltar cedo
         Esquecidos(); // um swap set pode ter sido destruído enquanto esperava
         if (m_nUltimas == 0) return segurar(); // não reenvia handle morto
-        // O Present extra usa o sync do compositor: se ele não estiver livre, parar aqui
-        // é melhor que arriscar o driver travado esperando por ele.
-        if (!m_fg.Travar(m_sync)) {
-            Falhou("syncTexture ocupado no PostPresent");
-            return segurar();
+        // Sem o syncTexture próprio, o gerado iria com o do compositor: se ele estiver
+        // ocupado, parar aqui é melhor que deixar o driver travado esperando por ele.
+        if (!m_fg.SyncProprio()) {
+            if (!m_fg.Travar(m_sync, 0)) {
+                Falhou("syncTexture ocupado no PostPresent");
+                return segurar();
+            }
+            m_fg.Destravar();
         }
-        m_fg.Destravar();
         if (EntregarGerado(m_ultimas, m_nUltimas)) {
             if (k < extras) GerarAdiante(k + 1);
             continue;
@@ -650,11 +677,16 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
             m_tSaida = NowSeconds();
             return;
         }
-        // Com trava: entrega o real de novo (o mesmo que o headset mostraria).
-        Reenviar(m_ultimas, m_nUltimas, NowSeconds() - t0);
+        // Com trava: entrega o real de novo (o mesmo que o headset mostraria). As texturas são
+        // do compositor: só com o sync dele livre; ocupado, o driver repete o quadro sozinho.
+        if (m_fg.Travar(m_sync, 0)) {
+            m_fg.Destravar();
+            Reenviar(m_ultimas, m_nUltimas, NowSeconds() - t0, m_sync);
+        }
         g_estatFG.falhas++;
         if (++m_semEntrega >= 120 && !m_desistiu) {
             m_desistiu = true;
+            m_desistiuEm = NowSeconds();
             g_estatFG.estado = FG_FALHOU;
             GF_LOG("FRAMEGEN desativado: os frames gerados não ficam prontos a tempo (GPU ocupada?)");
         }

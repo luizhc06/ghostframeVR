@@ -43,7 +43,9 @@ public:
 
     // Trava o syncTexture do compositor (keyed mutex, como os drivers fazem no Present)
     // enquanto as texturas do jogo são lidas. Sempre chame Destravar depois de Travar == true.
-    bool Travar(vr::SharedTextureHandle_t sync);
+    // `esperaMs`: no Present o compositor já soltou o sync (10 ms é só proteção); no
+    // PostPresent ele costuma estar segurando, então 0 (não espera).
+    bool Travar(vr::SharedTextureHandle_t sync, uint32_t esperaMs = 10);
     void Destravar();
 
     // Frame novo do jogo: copia a região `bounds` de cada olho para o histórico. Se o sync
@@ -51,6 +53,10 @@ public:
     // `pose` = mHmdPose do SubmitLayer. `ntHandle` = VRSwapTextureFlag_Shared_NTHandle.
     bool NovoFrame(const vr::SharedTextureHandle_t tex[2], const vr::VRTextureBounds_t bounds[2],
                    const vr::HmdMatrix34_t &pose, bool ntHandle);
+
+    // syncTexture do próprio proxy (keyed mutex de 1x1, sempre livre), para entregar os gerados:
+    // o compositor do SteamVR segura o dele enquanto o PostPresent roda. 0 = não tem.
+    vr::SharedTextureHandle_t SyncProprio() const;
 
     // Há dois frames no histórico com o mesmo tamanho: dá para gerar.
     bool Pronto() const;

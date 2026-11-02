@@ -319,3 +319,9 @@ label.ajuste { cursor: pointer; }
 .resultado-teste { margin-top: 8px; }
 .resultado-teste[hidden] { display: none; }
 .resultado-teste .conferencia b { width: 72px; }
+
+/* aviso que vale para todas as abas (ex.: proxy de outra versão) */
+.faixa-alerta { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; padding: 12px 16px;
+  border: 1px solid var(--alerta, #ffd23f); background: rgba(255, 210, 63, .08); color: #ffe9a6; font-size: 13px; }
+.faixa-alerta[hidden] { display: none; }
+.faixa-alerta b { display: block; color: #fff3c4; margin-bottom: 2px; }

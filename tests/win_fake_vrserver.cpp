@@ -399,8 +399,12 @@ vr::SharedTextureHandle_t Vsync(Compositor &c, int jogo, uint32_t trava) {
     c.dm->SubmitLayer(e);
     g_tPresent = gf::NowSeconds(); // daqui em diante o tempo é do proxy e do driver
     c.dm->Present(c.hSync);
+    // Como o compositor do SteamVR (visto num log real com o Pico): já pega o sync para o
+    // próximo quadro e o segura enquanto o PostPresent roda. Gerado que dependesse dele travaria.
+    const bool segura = c.km->AcquireSync(0, 1000) == S_OK;
     const DM8::Throttling_t t{trava, 0};
     c.dm->PostPresent(&t);
+    if (segura) c.km->ReleaseSync(0);
     vr::SharedTextureHandle_t hs[2] = {c.h[0], c.h[0]};
     uint32_t prox[2] = {3, 3};
     c.dm->GetNextSwapTextureSetIndex(hs, &prox);
@@ -661,7 +665,9 @@ int main(int argc, char **argv) {
         std::printf("c) %d frames do compositor: %d com 2 Presents no driver, %d reais intactos, %d extras gerados "
                     "(%.0f%%); PostPresents no driver: %d em 70 frames\n",
                     quadros, comDois, reaisIntactos, gerados, 100.0 * gerados / quadros, fake.postPresents() - pp0);
-        CHECK(comDois == quadros);
+        // Sem o gerado pronto, o real não é reenviado com o sync do compositor ocupado (o driver
+        // repete sozinho): um quadro ou outro tem 1 Present só.
+        CHECK(comDois * 10 >= quadros * 9);
         CHECK(reaisIntactos == quadros);
         CHECK(gerados * 10 >= quadros * 8);
         d.Confere("c");
@@ -790,6 +796,34 @@ int main(int argc, char **argv) {
         CHECK(gerados * 10 >= quadros * 8);
         CHECK(media >= 1.7 * kVsync); // o jogo ficou na metade dos Hz
     }
+    // ---- h) Manual 3x: o proxy trava o jogo em 1/3 dos Hz e gera nos 2 vsyncs do meio. ----
+    std::printf("\n== h) manual 3x: o proxy trava o jogo em 1/3 e gera 2 por quadro ==\n");
+    EscreveIni(ini, true, "modo = manual\nmultiplicador = 3\n");
+    Sleep(1500);
+    {
+        int quadros = 0, comTres = 0, doisGerados = 0;
+        double total = 0;
+        for (int k = 0; k < 50; ++k, ++jogo) {
+            const int de = fake.presents();
+            const double tv = gf::NowSeconds();
+            Vsync(c, jogo, 0);
+            const double dur = gf::NowSeconds() - tv;
+            const std::vector<Reg> r = Registros(fake, de);
+            if (k >= 10) {
+                quadros++;
+                comTres += r.size() == 3;
+                doisGerados += r.size() == 3 && r[1].doProxy && r[2].doProxy;
+                total += dur;
+            }
+        }
+        const double media = total / quadros;
+        std::printf("h) %d quadros do jogo: %d com 3 Presents, %d com 2 gerados (%.0f%%); cada quadro real levou em média "
+                    "%.1f ms (3 vsyncs = %.0f ms)\n",
+                    quadros, comTres, doisGerados, 100.0 * doisGerados / quadros, media * 1000, 3 * kVsync * 1000);
+        CHECK(doisGerados * 10 >= quadros * 8);
+        CHECK(media >= 2.6 * kVsync); // o jogo ficou em 1/3 dos Hz
+    }
+
     EscreveIni(ini, true);
     Sleep(1500);
     if (lerImagem) lerImagem(1);

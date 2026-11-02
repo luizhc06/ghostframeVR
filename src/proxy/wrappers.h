@@ -90,7 +90,7 @@ private:
     bool Motor();
     bool MotorOk() const { return m_motor.load() == 2; }
     void Esquecidos();
-    void Reenviar(const Camada *camadas, uint32_t n, double atraso);
+    void Reenviar(const Camada *camadas, uint32_t n, double atraso, vr::SharedTextureHandle_t sync);
     bool GerarAdiante(uint32_t k);
     bool EntregarGerado(const Camada *camadas, uint32_t n);
     void Falhou(const char *motivo);
@@ -147,6 +147,8 @@ private:
     uint32_t m_falhasSeguidas = 0;  // erros (texturas, NovoFrame, Gerar); zera ao gerar
     uint32_t m_semEntrega = 0;      // gerado não ficou pronto a tempo; zera ao entregar
     bool m_desistiu = false;
+    double m_desistiuEm = 0;        // quando desistiu: depois de kTentarDeNovo s tenta de novo sozinho
+    static constexpr double kTentarDeNovo = 10.0;
     int32_t m_proximoIdx = -1;      // índice que o driver deu para o swap set de saída
     // O motor inicia numa thread à parte (cria device e compila shaders: centenas de ms
     // que não podem parar o Present). 0 nada, 1 iniciando, 2 pronto, 3 falhou.

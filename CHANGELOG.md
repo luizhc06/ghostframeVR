@@ -2,7 +2,46 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.2.15-alpha] - 2026-11-01
+
+Tudo o que mudou desde o último teste real (relatório da v0.2.14 com o Pico 4 e o VRChat).
+
+### O que o teste real mostrou
+- **O proxy instalado era o da 0.2.12.** O app da 0.2.14 abriu, mas o driver do Pico continuou com a DLL antiga: o relógio próprio e o Manual 2x/3x da 0.2.14 nunca rodaram. Atualizar a DLL precisa do SteamVR fechado, e o aviso de versão diferente era só um toast que passava despercebido.
+- **A trava do SteamVR chega ao Pico, às vezes.** Com ela o 2x funcionou de verdade: o log mediu metade dos quadros reais e metade gerados, somando os Hz do headset.
+- **E logo parava (o liga e desliga que você viu).** O compositor do SteamVR já segura o syncTexture do próximo quadro enquanto o PostPresent roda. O proxy precisava dele para entregar o gerado, não conseguia (1091 falhas "syncTexture ocupado no PostPresent" em 44 s) e desistia. O jogo ficava travado na metade sem os gerados, o fps caía, o app desfazia a trava, o fps subia e o ciclo recomeçava.
+- **As estatísticas do SteamVR não contam os gerados.** O frame timing e o fps do SteamVR (e o contador do VRChat) medem o compositor, que só vê os quadros do jogo. Os gerados saem do proxy direto para o driver do Pico. O total aparece no ghostframe: Pegando (reais), Gerando e o fps do Headset no Painel.
+
+### Corrigido
+- **Gerados com syncTexture próprio.** O motor cria um keyed mutex 1x1 compartilhado, sempre livre, e todo quadro gerado é entregue com ele. O syncTexture do compositor só é usado para reenviar o quadro real, e só quando está livre (sem esperar). É a correção do liga e desliga.
+- **O frame gen não fica mais parado de vez.** Antes, depois de 60 falhas seguidas, 120 gerados atrasados ou o motor sem iniciar, ele desistia até você desligar e religar. Agora o proxy repassa tudo por 10 s e tenta de novo sozinho. A proteção do app (que desfaz a trava quando nenhum gerado é entregue) também volta sozinha depois de 30 s.
+- **Relógio próprio travado por um Present lento.** O pior caso do Present só era medido ao entregar um gerado: um Present lento uma única vez fazia o relógio achar que nunca havia tempo e parar de gerar para sempre. Agora cada quadro real mede o driver e o pior caso vai esquecendo.
+- **Proxy de outra versão.** Uma faixa amarela no topo de todas as abas avisa que o frame gen desta versão não está rodando e atualiza o proxy num clique (com o SteamVR fechado).
+
+### Testes
+O teste ponta a ponta roda o proxy de verdade entre um SteamVR e um Pico falsos, numa GPU D3D11. Ele roda na CI a cada mudança e no seu PC pelo autoteste (aba Desempenho, "Testar agora"). O compositor falso agora segura o syncTexture durante o PostPresent, como o do SteamVR real, que é a situação que quebrava o 2x no Pico. Resultado na CI desta versão:
+
+| Cenário | O que confere | Resultado |
+|---|---|---|
+| a | frame gen desligado: tudo passa intacto | 20 de 20 |
+| b | quadro repetido pelo compositor vira gerado | 59 de 60 (98%) |
+| c | trava do SteamVR: um gerado no vsync seguinte | 58 de 60 (97%) |
+| d | como o Pico: sem trava e sem repetido, o Auto gera no vsync vazio | 60 de 60 (100%) |
+| e | Auto com o jogo a 2/3 dos Hz: um gerado a cada 2 reais, nunca mais Presents que vsyncs | 35 gerados em 70 quadros, 105 Presents em 105 vsyncs |
+| f | driver com PostPresent lento (20 ms): o proxy nunca segura o compositor até o próximo quadro | 28 gerados em 50; compositor preso: mediana 52 ms, 90% até 81 ms, próximo quadro em 90 ms |
+| g | Manual 2x: o proxy trava o jogo na metade | 50 de 50 (100%), 2 vsyncs por quadro real |
+| h | Manual 3x: o proxy trava o jogo no terço | 40 de 40 com 2 gerados (100%), 3 vsyncs por quadro real |
+
+Também passaram: os testes em Linux com o SteamVR simulado (DirectMode 008 do Pico byte a byte, trava ligada e desligada com o jogo aberto, PostPresent sem trava), os mesmos testes com ASan e UBSan, a lógica do app e o build do Windows.
+
+### Para testar
+1. Feche o SteamVR, abra o ghostframe e clique em **Atualizar agora** se a faixa amarela aparecer.
+2. Desligue a suavização do próprio sistema (Motion Smoothing do SteamVR e, se o Pico Connect tiver, a dele): ela segura o jogo na metade por conta própria e briga com o frame gen.
+3. Jogue alguns minutos no Auto e depois no Manual 2x, e mande o relatório (aba Log, Gerar relatório).
+
+### Ainda não provado
+- Se o headset do Pico mostra os quadros gerados. O teste prova que o proxy entrega ao driver no tempo certo, não o que o Pico faz depois.
+- Quanto o PostPresent do Pico demora de verdade (o log da sessão mostra em `pp_ms`) e a qualidade da imagem gerada em movimento.
 
 ## [0.2.14-alpha] - 2026-11-01
 
