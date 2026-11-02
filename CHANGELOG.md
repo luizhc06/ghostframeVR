@@ -2,7 +2,7 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.2.17-alpha] - 2026-11-01
 
 ### Corrigido
 - **O frame gen derrubava o fps do próprio jogo.** Nos testes reais o jogo que fazia 79 caía para 44 com o Manual 2x, e o que fazia 50 caía para uns 25 e só então dobrava. Para entregar o quadro gerado, o proxy segurava o SteamVR esperando o vsync, e o jogo esperava junto. Agora os gerados saem de uma linha de execução própria do proxy, nos vsyncs vazios: o SteamVR e o jogo seguem no ritmo deles e o proxy só completa o que falta para os Hz do headset.
