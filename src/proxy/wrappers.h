@@ -138,6 +138,8 @@ private:
     double m_dPostMedia = 0;       // a média, só para o log (pp_ms)
     double m_tSaida = 0, m_folga = 0.01; // saída do PostPresent no relógio e a folga até o quadro novo
     double m_relogioPausaAte = 0;  // o compositor esperou pelo proxy: relógio pausado até aqui
+    uint32_t m_travaSteamVR = 0;   // trava do último PostPresent como o SteamVR mandou
+    bool m_extraManual = false;    // Manual com o jogo abaixo da fração: tenta mais um gerado
     void PostPresentReal(const Throttling_t *t);
     Conjunto m_saida[2] = {};
     bool m_temSaida = false, m_saidaUnica = false, m_saidaNt = false;

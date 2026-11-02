@@ -532,7 +532,8 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
             m_divisor = r < 2.5 ? 2 : 3;
         }
         const int mult = g_opcoes.multiplicador.load(std::memory_order_relaxed);
-        if (mult >= 2 && g_estatFG.trava.load() == 0) m_divisor = uint32_t(mult); // manual sem trava do SteamVR
+        const bool manual = mult >= 2 && m_travaSteamVR == 0; // o proxy trava o jogo ele mesmo
+        if (manual) m_divisor = uint32_t(mult);
         m_alfaPasso = 1.0 / m_divisor;
         // Relógio próprio: sem trava e sem repetição (Present no ritmo do jogo), com o jogo
         // abaixo dos Hz do headset. Cada quadro real soma I/período - 1 de crédito; a parte
@@ -561,6 +562,11 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
         } else {
             m_credito = 0;
         }
+        // Manual com o jogo abaixo da fração (ex.: menos da metade dos Hz no 2x): depois dos
+        // gerados sobra um vsync vazio antes do próximo quadro. O PostPresent tenta mais um
+        // gerado ali, com a mesma guarda do relógio, e o alfa passa a seguir o tempo de verdade.
+        m_extraManual = manual && per > 0 && agora >= m_relogioPausaAte && m_intervaloJogo > 1.05 * mult * per;
+        if (m_extraManual) m_alfaPasso = per / m_intervaloJogo;
         if (Motor()) {
             for (int olho = 0; olho < 2; ++olho) {
                 ProjecaoOlho p = Projecao(olho);
@@ -599,6 +605,7 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
 void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     static std::atomic<uint64_t> chamadas{0};
     uint32_t trava = t ? t->nFramesToThrottle : 0;
+    m_travaSteamVR = trava;
     if (chamadas++ < kVerboseCalls)
         GF_LOG("DirectMode::PostPresent throttle=%u predict=%u", trava, t ? t->nAdditionalFramesToPredict : 0);
     const bool novo = m_ultimoFoiNovo;
@@ -611,6 +618,7 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     if (travaPropria) trava = uint32_t(mult - 1);
     g_estatFG.trava = trava;
     const bool nossa = travaPropria || g_travaDoProxy.load(std::memory_order_relaxed);
+    const bool extraManual = travaPropria && m_extraManual && trava < 3;
     // Sem trava: só o relógio próprio entrega algo aqui (gerado pronto depois de um quadro novo).
     const bool relogio = trava == 0 && novo && !m_desistiu && m_extrasRelogio > 0 && m_pendente && m_nUltimas;
     if ((trava == 0 && !relogio) || (trava > 0 && !nossa && (!novo || m_desistiu))) {
@@ -625,8 +633,8 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     // Trava nossa sem frame para entregar: segura os N+1 vsyncs como o ALVR (o driver não
     // segura e o jogo está sendo previsto N quadros à frente).
     auto segurar = [&] { if (trava) DormirAte(t0 + (trava + 1) * periodo - 0.001); }; // relógio: nada a segurar
-    const uint32_t extras = relogio ? m_extrasRelogio : trava < 3 ? trava : 3;
-    if (!relogio && novo && !m_desistiu) {
+    const uint32_t extras = relogio ? m_extrasRelogio : (trava < 3 ? trava : 3) + (extraManual ? 1 : 0);
+    if (!relogio && !extraManual && novo && !m_desistiu) {
         m_divisor = extras + 1;
         m_alfaPasso = 1.0 / m_divisor;
         // O gerado pendente foi feito com outro passo (ex.: vinha do relógio): refaz.
@@ -645,13 +653,16 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     }
     for (uint32_t k = 1; k <= extras; ++k) {
         PostPresentReal(&um);           // o driver espera o vsync do quadro anterior
-        if (relogio) {
+        // Gerado fora da fração (relógio, ou o extra do Manual): só se couber antes do próximo real.
+        const bool livre = relogio || (extraManual && k == extras);
+        if (livre) {
             // Gerado atrasado é pior que nenhum (o Pico já reprojeta), e nunca segurar o
             // compositor até depois do próximo quadro real (contando o PostPresent do driver).
             const double agora = NowSeconds(), prazo = t0 + k * periodo;
             // Quando sairíamos: o Present do gerado mais o PostPresent do driver (medidos), + 1 ms.
             const double fim = (agora > prazo ? agora : prazo) + m_dPresent + m_dPost;
             if (agora > prazo - 0.0005 || fim + 0.001 > proxReal) {
+                segurar(); // no Manual a fração continua; no relógio não há trava
                 m_tSaida = NowSeconds();
                 return;
             }
@@ -672,8 +683,8 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
             if (k < extras) GerarAdiante(k + 1);
             continue;
         }
-        // Não ficou pronto. No relógio o driver já cobre o vsync sozinho: para aqui.
-        if (relogio) {
+        // Não ficou pronto. No relógio (e no extra do Manual) o driver já cobre o vsync sozinho.
+        if (livre) {
             m_tSaida = NowSeconds();
             return;
         }
@@ -694,7 +705,7 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
     PostPresentReal(&um);
     // O driver recebeu trava 0: quem fecha a fração (o último vsync) é o proxy.
     segurar();
-    if (relogio) m_tSaida = NowSeconds();
+    if (relogio || extraManual) m_tSaida = NowSeconds();
 }
 
 // PostPresent do driver, medindo quanto ele demora (o relógio próprio conta com isso).

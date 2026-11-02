@@ -823,6 +823,35 @@ int main(int argc, char **argv) {
         CHECK(doisGerados * 10 >= quadros * 8);
         CHECK(media >= 2.6 * kVsync); // o jogo ficou em 1/3 dos Hz
     }
+    // ---- i) Manual 2x com o jogo abaixo da metade dos Hz: o vsync que sobraria vazio depois do
+    // gerado ganha mais um, sem segurar o compositor até o próximo quadro. ----
+    std::printf("\n== i) manual 2x com o jogo lento: completa com mais um gerado ==\n");
+    EscreveIni(ini, true, "modo = manual\nmultiplicador = 2\n");
+    Sleep(1500);
+    {
+        int quadros = 0, doisGerados = 0;
+        std::vector<double> preso;
+        for (int k = 0; k < 50; ++k, ++jogo) {
+            const int de = fake.presents();
+            const double tv = gf::NowSeconds();
+            Vsync(c, jogo, 0);
+            const double segurou = gf::NowSeconds() - g_tPresent;
+            const std::vector<Reg> r = Registros(fake, de);
+            if (k >= 10) {
+                quadros++;
+                doisGerados += r.size() == 3 && r[1].doProxy && r[2].doProxy;
+                preso.push_back(segurou);
+            }
+            gf::DormirAte(tv + 3.4 * kVsync); // o jogo não segura os 2 vsyncs do 2x
+        }
+        std::sort(preso.begin(), preso.end());
+        const double p90 = preso[preso.size() * 9 / 10];
+        std::printf("i) %d quadros do jogo: %d com 2 gerados (%.0f%%); compositor preso: 90%% %.1f ms (próximo quadro em "
+                    "%.0f ms)\n",
+                    quadros, doisGerados, 100.0 * doisGerados / quadros, p90 * 1000, 3.4 * kVsync * 1000);
+        CHECK(doisGerados * 10 >= quadros * 6);
+        CHECK(p90 < 3.4 * kVsync - 0.002);
+    }
 
     EscreveIni(ini, true);
     Sleep(1500);

@@ -2,6 +2,11 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Mudado
+- **Manual 2x e 3x completam quando o jogo cai abaixo da fração.** No teste real o 2x funcionou (um gerado por quadro real em 862 de 872 s), mas o jogo ficou entre 31 e 43 quadros por segundo: abaixo da metade dos Hz, sobrava um vsync vazio depois do gerado e o Pico repetia o quadro. Agora o proxy põe mais um gerado nesse vsync, no tempo certo do movimento, só quando ele cabe antes do próximo quadro real (a mesma guarda do Auto: segurar o compositor não pode atrasar o jogo).
+
 ## [0.2.16-alpha] - 2026-11-01
 
 ### Corrigido
