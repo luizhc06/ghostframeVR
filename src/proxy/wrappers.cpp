@@ -739,6 +739,18 @@ void DirectModeWrapper::NaoFicouPronto() {
     }
 }
 
+// O apresentador não conseguiu o gerado a tempo (GPU ocupada pelo jogo): o driver repete o
+// último quadro e o frame gen continua. Não desiste por isso: no teste real, desistir a cada 120
+// atrasos fazia o frame gen "gerar 2 e morrer" com o jogo pesado na GPU.
+void DirectModeWrapper::Atrasado() {
+    g_estatFG.falhas++;
+    static std::atomic<uint64_t> n{0};
+    const uint64_t i = n++;
+    if (i == 0 || i % 1000 == 0)
+        GF_LOG("FRAMEGEN gerado não ficou pronto a tempo (GPU ocupada pelo jogo?): vsync pulado (%llu até agora)",
+               (unsigned long long)(i + 1));
+}
+
 // Thread do apresentador: entrega os gerados que o Present agendou, cada um no seu vsync, sem
 // segurar o compositor. Um quadro novo do compositor (SubmitLayer) cancela o que falta.
 void DirectModeWrapper::Apresentador() {
@@ -753,21 +765,32 @@ void DirectModeWrapper::Apresentador() {
         const double t0 = m_tarefaT0, per = m_tarefaPer, prox = m_tarefaProx;
         const uint32_t extras = m_tarefaExtras;
         bool entregou = false;
+        auto cancelado = [&] { return m_tarefa != feita || m_quadro.load() != quadro || m_esperaPostPresent || m_desistiu; };
         for (uint32_t k = 1; k <= extras; ++k) {
             const double prazo = t0 + k * per;
             lk.unlock();
             DormirAte(prazo - 0.001);
             lk.lock();
             if (m_parar) return;
-            if (m_tarefa != feita || m_quadro.load() != quadro || m_esperaPostPresent || m_desistiu) break;
-            // Gerado atrasado é pior que nenhum (o Pico já reprojeta), e a entrega (Present e
-            // PostPresent do driver, pior caso medido) tem de acabar antes do próximo quadro real.
-            const double agora = NowSeconds();
-            if (agora > prazo + 0.002 || agora + m_dPresent + m_dPost + 0.001 > prox) break;
+            if (cancelado()) break;
+            // A entrega (Present e PostPresent do driver, pior caso medido) tem de acabar antes do
+            // próximo quadro real: o compositor nunca espera pelo apresentador.
+            const double limite = prox - m_dPresent - m_dPost - 0.001;
+            if (NowSeconds() > limite) break;
             Esquecidos();
             if (m_nUltimas == 0) break;
+            // Com o jogo ocupando a GPU, o gerado pode ficar na fila atrás do quadro do jogo: espera
+            // ele ficar pronto enquanto ainda couber, em vez de perder o vsync na hora.
+            while (m_pendente && !m_fg.Concluido() && NowSeconds() + 0.0005 < limite) {
+                lk.unlock();
+                DormirAte(NowSeconds() + 0.0005);
+                lk.lock();
+                if (m_parar) return;
+                if (cancelado()) break;
+            }
+            if (cancelado()) break;
             if (!EntregarGerado(m_ultimas, m_nUltimas)) {
-                NaoFicouPronto();
+                Atrasado();
                 break;
             }
             PostPresentReal(&kSemTrava);

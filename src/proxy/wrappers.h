@@ -90,6 +90,7 @@ private:
     void LiberarSaida();
     void Destruir(Conjunto (&s)[2], bool unica, bool &tem);
     void NaoFicouPronto();
+    void Atrasado();
     void Apresentador();
     bool Motor();
     bool MotorOk() const { return m_motor.load() == 2; }

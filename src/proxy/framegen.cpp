@@ -6,6 +6,7 @@
 
 #include "framegen_ref.h"
 #include "log.h"
+#include "platform.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -18,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <new>
 
 namespace gf {
@@ -271,6 +273,21 @@ bool Regiao(const D3D11_TEXTURE2D_DESC &d, const vr::VRTextureBounds_t &b, D3D11
 
 UINT Grupos(UINT n) { return (n + 7) / 8; }
 
+// GF_TESTE_ATRASO_GPU_MS (só com GF_TESTE_HZ_LIVRE, o teste ponta a ponta): o gerado só conta como
+// pronto esse tempo depois de enfileirado. Relido a cada segundo: o teste liga e desliga.
+double AtrasoTesteGpu() {
+    static const bool teste = GetEnvironmentVariableA("GF_TESTE_HZ_LIVRE", nullptr, 0) > 0;
+    if (!teste) return 0;
+    static double valor = 0, lido = -1;
+    const double agora = NowSeconds();
+    if (agora - lido > 1.0) {
+        char b[16] = {};
+        valor = GetEnvironmentVariableA("GF_TESTE_ATRASO_GPU_MS", b, sizeof(b)) ? std::atof(b) / 1000.0 : 0;
+        lido = agora;
+    }
+    return valor;
+}
+
 } // namespace
 
 struct FrameGen::Impl {
@@ -307,6 +324,7 @@ struct FrameGen::Impl {
     ComPtr<ID3D11Query> evento;
     ComPtr<IDXGIKeyedMutex> travado;
     bool gerou = false;
+    double tGerou = 0;
     Params p{};
     Olho olhos[2];
     TexAberta cache[kCache];
@@ -615,7 +633,14 @@ bool FrameGen::Iniciar(bool warp) {
     DXGI_ADAPTER_DESC desc{};
     if (SUCCEEDED(m->dev.As(&dxgi)) && SUCCEEDED(dxgi->GetAdapter(&adaptador)) && SUCCEEDED(adaptador->GetDesc(&desc)))
         WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, gpu, sizeof(gpu), nullptr, nullptr);
-    GF_LOG("FrameGen: iniciado (%s, %s, feature level 0x%x)", warp ? "WARP" : "hardware", gpu, (unsigned)nivel);
+    // Com o jogo ocupando a GPU inteira, o gerado (menos de 1 ms de trabalho) ficava na fila atrás
+    // do quadro do jogo e perdia o vsync (teste real, RTX 5070). Pede a maior prioridade que o
+    // Windows der (acima de 0 precisa de privilégio; sem ele fica no padrão).
+    int prioridade = 0;
+    for (int p = 7; dxgi && p > 0 && !prioridade; --p)
+        if (SUCCEEDED(dxgi->SetGPUThreadPriority(p))) prioridade = p;
+    GF_LOG("FrameGen: iniciado (%s, %s, feature level 0x%x, prioridade de GPU %d)", warp ? "WARP" : "hardware", gpu,
+           (unsigned)nivel, prioridade);
     return true;
 }
 
@@ -768,12 +793,15 @@ bool FrameGen::Gerar(float alfa, const vr::SharedTextureHandle_t saida[2], const
     m->ctx->End(m->evento.Get());
     m->ctx->Flush(); // sem isto o Concluido() com DONOTFLUSH poderia nunca ver o fim
     m->gerou = true;
+    m->tGerou = NowSeconds();
     return true;
 }
 
 bool FrameGen::Concluido() {
     if (!Iniciado() || !m->gerou) return false;
     m->LerTempos();
+    // Só o teste ponta a ponta: simula a GPU ocupada pelo jogo (o gerado demora a ficar pronto).
+    if (AtrasoTesteGpu() > 0 && NowSeconds() - m->tGerou < AtrasoTesteGpu()) return false;
     BOOL feito = FALSE;
     return m->ctx->GetData(m->evento.Get(), &feito, sizeof(feito), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK && feito;
 }
