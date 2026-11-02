@@ -13,6 +13,7 @@
 #include <openvr_driver_legado.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstring>
 #include <cstdint>
 #include <memory>
@@ -61,7 +62,7 @@ private:
 // Desligado, tudo é repassado na hora, exatamente como antes.
 class DirectModeWrapper final : public vr::IVRDriverDirectModeComponent {
 public:
-    explicit DirectModeWrapper(vr::IVRDriverDirectModeComponent *real) : m_real(real) {}
+    explicit DirectModeWrapper(vr::IVRDriverDirectModeComponent *real);
     ~DirectModeWrapper();
 
     void CreateSwapTextureSet(uint32_t unPid, const SwapTextureSetDesc_t *pDesc, SwapTextureSet_t *pOut) override;
@@ -87,6 +88,9 @@ private:
     bool MesmoConjunto(vr::SharedTextureHandle_t a, vr::SharedTextureHandle_t b);
     bool GarantirSaida(const Camada &cena);
     void LiberarSaida();
+    void Destruir(Conjunto (&s)[2], bool unica, bool &tem);
+    void NaoFicouPronto();
+    void Apresentador();
     bool Motor();
     bool MotorOk() const { return m_motor.load() == 2; }
     void Esquecidos();
@@ -138,9 +142,23 @@ private:
     double m_dPostMedia = 0;       // a média, só para o log (pp_ms)
     double m_tSaida = 0, m_folga = 0.01; // saída do PostPresent no relógio e a folga até o quadro novo
     double m_relogioPausaAte = 0;  // o compositor esperou pelo proxy: relógio pausado até aqui
+    uint32_t m_travaSteamVR = 0;   // trava do último PostPresent, como o SteamVR mandou
+    bool m_esperaPostPresent = false; // Present real feito, PostPresent dele ainda não
+    // Apresentador: thread que entrega os gerados do relógio nos vsyncs vazios. Tudo que mexe no
+    // driver, no motor e no estado do frame gen fica sob m_mx (o compositor e ele se alternam).
+    std::mutex m_mx;
+    std::condition_variable m_cv;
+    std::thread m_apresentador;
+    bool m_parar = false;
+    uint64_t m_tarefa = 0, m_tarefaQuadro = 0; // muda a cada agendamento (ou cancelamento)
+    double m_tarefaT0 = 0, m_tarefaPer = 0, m_tarefaProx = 0;
+    uint32_t m_tarefaExtras = 0;
+    std::atomic<uint64_t> m_quadro{0}; // quadros do compositor (1º SubmitLayer de cada um)
     void PostPresentReal(const Throttling_t *t);
     Conjunto m_saida[2] = {};
     bool m_temSaida = false, m_saidaUnica = false, m_saidaNt = false;
+    Conjunto m_reserva[2] = {};    // o de antes da última troca de tamanho (não destruído)
+    bool m_temReserva = false, m_reservaUnica = false, m_reservaNt = false;
     uint32_t m_idxSaida = 0;
     bool m_pendente = false;     // há um frame gerado na GPU esperando ser entregue
     uint32_t m_idxPendente = 0, m_kPendente = 0, m_divisorPendente = 0;

@@ -2,6 +2,15 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Corrigido
+- **O frame gen derrubava o fps do próprio jogo.** Nos testes reais o jogo que fazia 79 caía para 44 com o Manual 2x, e o que fazia 50 caía para uns 25 e só então dobrava. Para entregar o quadro gerado, o proxy segurava o SteamVR esperando o vsync, e o jogo esperava junto. Agora os gerados saem de uma linha de execução própria do proxy, nos vsyncs vazios: o SteamVR e o jogo seguem no ritmo deles e o proxy só completa o que falta para os Hz do headset.
+- **Tela inteira piscando preta com o frame gen.** O SteamVR alterna entre a imagem que ele monta e a do jogo repassada direto, com tamanhos diferentes. A cada troca, o proxy destruía as texturas dos gerados, mesmo com um deles ainda na tela. Agora elas ficam guardadas e voltam sem recriar. O proxy também deixou de reenviar o quadro real um vsync depois, quando o gerado atrasa: a textura pode ser do próprio jogo, que já está desenhando o próximo quadro nela.
+
+### Mudado
+- **Manual 2x e 3x não travam mais o jogo.** Viraram um teto: no máximo 1 (2x) ou 2 (3x) gerados por quadro real. O Auto completa até os Hz do headset com até 2.
+
 ## [0.2.16-alpha] - 2026-11-01
 
 ### Corrigido

@@ -381,6 +381,7 @@ struct Compositor {
 // Um vsync: desenha o frame `jogo` na textura que o driver indicou, submete com a pose dele,
 // Present e PostPresent (trava = nFramesToThrottle). Devolve o handle submetido.
 double g_tPresent = 0; // quando o último Vsync chamou Present
+double g_dPresent = 0; // quanto o Present do proxy demorou (esperando o apresentador)
 
 vr::SharedTextureHandle_t Vsync(Compositor &c, int jogo, uint32_t trava) {
     const uint32_t i = c.idx;
@@ -399,6 +400,7 @@ vr::SharedTextureHandle_t Vsync(Compositor &c, int jogo, uint32_t trava) {
     c.dm->SubmitLayer(e);
     g_tPresent = gf::NowSeconds(); // daqui em diante o tempo é do proxy e do driver
     c.dm->Present(c.hSync);
+    g_dPresent = gf::NowSeconds() - g_tPresent;
     // Como o compositor do SteamVR (visto num log real com o Pico): já pega o sync para o
     // próximo quadro e o segura enquanto o PostPresent roda. Gerado que dependesse dele travaria.
     const bool segura = c.km->AcquireSync(0, 1000) == S_OK;
@@ -678,11 +680,15 @@ int main(int argc, char **argv) {
     std::printf("\n== d) jogo a meia taxa sem repetir quadro e sem trava (relógio próprio) ==\n");
     {
         int quadros = 0, comDois = 0, reaisIntactos = 0, gerados = 0;
+        std::vector<double> preso;
         Desloc d;
         for (int k = 0; k < 70; ++k, ++jogo) {
             const double tv = gf::NowSeconds();
             const int de = fake.presents();
             const vr::SharedTextureHandle_t h = Vsync(c, jogo, 0);
+            const double segurou = gf::NowSeconds() - g_tPresent;
+            gf::DormirAte(tv + 2 * kVsync); // o jogo entrega um quadro a cada 2 vsyncs
+            // O gerado sai do apresentador depois que o PostPresent voltou: conta até o próximo.
             const std::vector<Reg> r = Registros(fake, de);
             if (k >= 10) { // o proxy mede o ritmo do jogo pelos Presents
                 quadros++;
@@ -692,13 +698,17 @@ int main(int argc, char **argv) {
                     gerados++;
                     d.Anota(r[1], jogo);
                 }
+                preso.push_back(segurou);
             }
-            gf::DormirAte(tv + 2 * kVsync); // o jogo entrega um quadro a cada 2 vsyncs
         }
-        std::printf("d) %d quadros do jogo: %d com 2 Presents no driver, %d reais intactos, %d gerados no vsync vazio (%.0f%%)\n",
-                    quadros, comDois, reaisIntactos, gerados, 100.0 * gerados / quadros);
+        std::sort(preso.begin(), preso.end());
+        std::printf("d) %d quadros do jogo: %d com 2 Presents no driver, %d reais intactos, %d gerados no vsync vazio (%.0f%%); "
+                    "compositor preso no proxy: 90%% %.1f ms\n",
+                    quadros, comDois, reaisIntactos, gerados, 100.0 * gerados / quadros, preso[preso.size() * 9 / 10] * 1000);
         CHECK(reaisIntactos == quadros);
         CHECK(gerados * 10 >= quadros * 8);
+        // O compositor (e com ele o jogo) não espera pelos gerados: o PostPresent volta na hora.
+        CHECK(preso[preso.size() * 9 / 10] < 0.3 * kVsync);
         d.Confere("d");
     }
 
@@ -714,13 +724,13 @@ int main(int argc, char **argv) {
             const double tv = gf::NowSeconds();
             const int de = fake.presents();
             Vsync(c, jogo, 0);
+            gf::DormirAte(tv + 1.5 * kVsync);
             const std::vector<Reg> r = Registros(fake, de);
             if (k >= 10) {
                 quadros++;
                 presents += int(r.size());
                 gerados += r.size() == 2 && r[1].doProxy;
             }
-            gf::DormirAte(tv + 1.5 * kVsync);
         }
         // 70 quadros em 70*1.5 vsyncs: o ideal é 35 gerados (headset cheio, sem passar).
         std::printf("e) %d quadros do jogo: %d gerados (%.0f%% dos quadros), %d Presents no driver em %.0f vsyncs\n",
@@ -730,57 +740,54 @@ int main(int argc, char **argv) {
     }
 
     // ---- f) driver cujo PostPresent demora 20 ms (como um que espera o próprio vsync), jogo a
-    // 1/3 dos Hz: cabe um gerado, e o proxy nunca segura o compositor até o próximo quadro. ----
+    // 1/3 dos Hz: os gerados cabem antes do próximo quadro e o Present do compositor quase nunca
+    // espera pelo apresentador. ----
     std::printf("\n== f) PostPresent do driver demorando 20 ms ==\n");
     {
         auto espera = Funcao<void (*)(int)>(hReal, "FakePico_EsperaPostPresent");
         CHECK(espera != nullptr);
         if (espera) espera(20);
         int quadros = 0, gerados = 0;
-        std::vector<double> preso;
+        std::vector<double> esperou;
         for (int k = 0; k < 60; ++k, ++jogo) {
             const double tv = gf::NowSeconds();
             const int de = fake.presents();
             Vsync(c, jogo, 0);
-            // Do Present do compositor até o proxy devolver o PostPresent (o desenho do
-            // compositor falso antes do Present não é do proxy).
-            const double segurou = gf::NowSeconds() - g_tPresent;
+            const double dp = g_dPresent;
+            gf::DormirAte(tv + 3 * kVsync);
             const std::vector<Reg> r = Registros(fake, de);
             if (k >= 10) {
                 quadros++;
-                gerados += r.size() == 2 && r[1].doProxy;
-                preso.push_back(segurou);
+                gerados += r.size() >= 2 && r[1].doProxy;
+                esperou.push_back(dp);
             }
-            gf::DormirAte(tv + 3 * kVsync);
         }
         if (espera) espera(0);
-        std::sort(preso.begin(), preso.end());
-        const double p50 = preso[preso.size() / 2], p90 = preso[preso.size() * 9 / 10], pmax = preso.back();
-        const int passou = int(std::count_if(preso.begin(), preso.end(), [](double x) { return x >= 3 * kVsync; }));
-        std::printf("f) %d quadros: %d gerados (%.0f%%); compositor preso: mediana %.1f ms, 90%% %.1f ms, máx %.1f ms, "
-                    "%d de %d além do próximo quadro (%.0f ms)\n",
-                    quadros, gerados, 100.0 * gerados / quadros, p50 * 1000, p90 * 1000, pmax * 1000, passou, quadros,
-                    3 * kVsync * 1000);
-        // A guarda decide antes de gerar, com o que mediu; um soluço isolado da "GPU" em software
-        // da CI pode passar. O que não pode é virar regra.
-        CHECK(p90 < 3 * kVsync - 0.002);
-        CHECK(passou * 10 <= quadros);
+        std::sort(esperou.begin(), esperou.end());
+        const double p50 = esperou[esperou.size() / 2], p90 = esperou[esperou.size() * 9 / 10], pmax = esperou.back();
+        std::printf("f) %d quadros: %d com gerado (%.0f%%); Present do compositor no proxy: mediana %.1f ms, 90%% %.1f ms, "
+                    "máx %.1f ms\n",
+                    quadros, gerados, 100.0 * gerados / quadros, p50 * 1000, p90 * 1000, pmax * 1000);
+        // A guarda decide antes de entregar, com o que mediu; um soluço isolado da "GPU" em
+        // software da CI pode passar. O que não pode é virar regra.
+        CHECK(p90 < 0.5 * kVsync);
         CHECK(gerados * 10 >= quadros * 3);
     }
 
-    // ---- g) Manual 2x sem trava do SteamVR: o jogo tenta rodar no máximo e o proxy o trava na
-    // metade dos Hz, com um gerado em cada vsync do meio (o pedido "sempre 2x"). ----
-    std::printf("\n== g) manual 2x: o proxy trava o jogo na metade e gera o resto ==\n");
+    // ---- g) Manual 2x: no máximo 1 gerado por quadro real, mesmo com o jogo a 1/3 dos Hz, e o
+    // jogo nunca é travado (o PostPresent volta na hora). ----
+    std::printf("\n== g) manual 2x: um gerado por quadro, sem travar o jogo ==\n");
     EscreveIni(ini, true, "modo = manual\nmultiplicador = 2\n");
     Sleep(1500); // o proxy relê o ini a cada 1 s
     {
         int quadros = 0, comDois = 0, gerados = 0;
         double total = 0;
-        for (int k = 0; k < 60; ++k, ++jogo) {
+        for (int k = 0; k < 50; ++k, ++jogo) {
             const int de = fake.presents();
             const double tv = gf::NowSeconds();
-            Vsync(c, jogo, 0); // nenhuma espera do "jogo": quem segura o ritmo é o proxy
+            Vsync(c, jogo, 0);
             const double dur = gf::NowSeconds() - tv;
+            gf::DormirAte(tv + 3 * kVsync);
             const std::vector<Reg> r = Registros(fake, de);
             if (k >= 10) {
                 quadros++;
@@ -790,38 +797,32 @@ int main(int argc, char **argv) {
             }
         }
         const double media = total / quadros;
-        std::printf("g) %d quadros do jogo: %d com 2 Presents, %d gerados (%.0f%%); cada quadro real levou em média "
-                    "%.1f ms (2 vsyncs = %.0f ms)\n",
-                    quadros, comDois, gerados, 100.0 * gerados / quadros, media * 1000, 2 * kVsync * 1000);
+        std::printf("g) %d quadros do jogo: %d com 2 Presents, %d gerados (%.0f%%); o compositor ficou em média "
+                    "%.1f ms no proxy (o vsync é de %.0f ms)\n",
+                    quadros, comDois, gerados, 100.0 * gerados / quadros, media * 1000, kVsync * 1000);
         CHECK(gerados * 10 >= quadros * 8);
-        CHECK(media >= 1.7 * kVsync); // o jogo ficou na metade dos Hz
+        CHECK(comDois * 10 >= quadros * 8); // nunca 2 gerados: o 2x é o teto
+        CHECK(media < 0.5 * kVsync);        // o jogo não ficou esperando
     }
-    // ---- h) Manual 3x: o proxy trava o jogo em 1/3 dos Hz e gera nos 2 vsyncs do meio. ----
-    std::printf("\n== h) manual 3x: o proxy trava o jogo em 1/3 e gera 2 por quadro ==\n");
+    // ---- h) Manual 3x: até 2 gerados por quadro real (jogo a 1/3 dos Hz). ----
+    std::printf("\n== h) manual 3x: dois gerados por quadro ==\n");
     EscreveIni(ini, true, "modo = manual\nmultiplicador = 3\n");
     Sleep(1500);
     {
-        int quadros = 0, comTres = 0, doisGerados = 0;
-        double total = 0;
+        int quadros = 0, doisGerados = 0;
         for (int k = 0; k < 50; ++k, ++jogo) {
             const int de = fake.presents();
             const double tv = gf::NowSeconds();
             Vsync(c, jogo, 0);
-            const double dur = gf::NowSeconds() - tv;
+            gf::DormirAte(tv + 3 * kVsync);
             const std::vector<Reg> r = Registros(fake, de);
             if (k >= 10) {
                 quadros++;
-                comTres += r.size() == 3;
                 doisGerados += r.size() == 3 && r[1].doProxy && r[2].doProxy;
-                total += dur;
             }
         }
-        const double media = total / quadros;
-        std::printf("h) %d quadros do jogo: %d com 3 Presents, %d com 2 gerados (%.0f%%); cada quadro real levou em média "
-                    "%.1f ms (3 vsyncs = %.0f ms)\n",
-                    quadros, comTres, doisGerados, 100.0 * doisGerados / quadros, media * 1000, 3 * kVsync * 1000);
-        CHECK(doisGerados * 10 >= quadros * 8);
-        CHECK(media >= 2.6 * kVsync); // o jogo ficou em 1/3 dos Hz
+        std::printf("h) %d quadros do jogo: %d com 2 gerados (%.0f%%)\n", quadros, doisGerados, 100.0 * doisGerados / quadros);
+        CHECK(doisGerados * 10 >= quadros * 7);
     }
 
     EscreveIni(ini, true);

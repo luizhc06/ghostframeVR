@@ -76,7 +76,7 @@ void LerOpcoes() {
     const int mult = modo == "manual" ? (m >= 3 ? 3 : 2) : 0;
     if (mult != g_opcoes.multiplicador.exchange(mult))
     {
-        if (mult) GF_LOG("FRAMEGEN manual %dx: o proxy trava o jogo nessa fração e gera o resto", mult);
+        if (mult) GF_LOG("FRAMEGEN manual %dx: até %d gerado(s) por quadro real, sem travar o jogo", mult, mult - 1);
         else GF_LOG("FRAMEGEN auto: completa até os Hz do headset quando o jogo fica abaixo");
     }
 }
