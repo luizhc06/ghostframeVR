@@ -864,6 +864,35 @@ int main(int argc, char **argv) {
         CHECK(esperou[esperou.size() * 9 / 10] < 0.3 * kVsync);
     }
 
+    // ---- j) GPU ocupada pelo jogo (teste real, RTX 5070): o gerado só fica pronto 10 ms depois do
+    // vsync dele. O apresentador espera e entrega antes do próximo quadro, e o frame gen não
+    // desiste depois de 120 atrasos (antes "gerava 2 e morria"). ----
+    std::printf("\n== j) gerado atrasado pela GPU ocupada ==\n");
+    EscreveIni(ini, true);
+    SetEnvironmentVariableA("GF_TESTE_ATRASO_GPU_MS", "40");
+    Sleep(1500);
+    {
+        const int de = fake.presents();
+        for (int k = 0; k < 160; ++k, ++jogo) {
+            const double tv = gf::NowSeconds();
+            Vsync(c, jogo, 0);
+            gf::DormirAte(tv + 2 * kVsync); // jogo na metade dos Hz; o gerado fica pronto em 40 de 60 ms
+        }
+        gf::DormirAte(gf::NowSeconds() + 2 * kVsync);
+        const std::vector<std::vector<Reg>> g = Grupos(fake, de);
+        int quadros = 0, gerados = 0, finais = 0;
+        for (size_t k = 10; k < g.size(); ++k) {
+            quadros++;
+            gerados += g[k].size() == 2;
+            finais += k + 30 >= g.size() && g[k].size() == 2;
+        }
+        std::printf("j) %d quadros do jogo: %d com o gerado atrasado entregue (%.0f%%), %d nos últimos 30\n", quadros,
+                    gerados, 100.0 * gerados / quadros, finais);
+        CHECK(gerados * 10 >= quadros * 7);
+        CHECK(finais * 10 >= 30 * 7); // continua gerando depois de mais de 120 quadros
+    }
+    SetEnvironmentVariableA("GF_TESTE_ATRASO_GPU_MS", nullptr);
+
     EscreveIni(ini, true);
     Sleep(1500);
     if (lerImagem) lerImagem(1);
