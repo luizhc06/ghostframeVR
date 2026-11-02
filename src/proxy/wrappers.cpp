@@ -571,8 +571,13 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
         }
     }
 
+    // O Present de cada quadro real também mede o driver: o pior caso que a guarda do relógio
+    // usa vai esquecendo um Present lento, mesmo sem nenhum gerado entregue.
+    const double ap = NowSeconds();
     for (uint32_t i = 0; i < nc; ++i) m_real->SubmitLayer(m_camadas[i]);
     m_real->Present(syncTexture);
+    const double dp = NowSeconds() - ap;
+    if (dp >= 0 && dp < 0.1) m_dPresent = dp > m_dPresent * 0.95 ? dp : m_dPresent * 0.95;
     m_ultimoFoiNovo = novo;
     if (novo && m_nUltimas) GerarAdiante(1);
 }

@@ -665,7 +665,9 @@ int main(int argc, char **argv) {
         std::printf("c) %d frames do compositor: %d com 2 Presents no driver, %d reais intactos, %d extras gerados "
                     "(%.0f%%); PostPresents no driver: %d em 70 frames\n",
                     quadros, comDois, reaisIntactos, gerados, 100.0 * gerados / quadros, fake.postPresents() - pp0);
-        CHECK(comDois == quadros);
+        // Sem o gerado pronto, o real não é reenviado com o sync do compositor ocupado (o driver
+        // repete sozinho): um quadro ou outro tem 1 Present só.
+        CHECK(comDois * 10 >= quadros * 9);
         CHECK(reaisIntactos == quadros);
         CHECK(gerados * 10 >= quadros * 8);
         d.Confere("c");
