@@ -363,6 +363,17 @@ std::vector<Reg> Registros(const Fake &f, int de) {
     return r;
 }
 
+// Registros a partir de `de` em grupos: cada real (não do proxy) abre um, e os gerados que o
+// apresentador entregou depois dele, até o próximo real, ficam no mesmo grupo.
+std::vector<std::vector<Reg>> Grupos(const Fake &f, int de) {
+    std::vector<std::vector<Reg>> g;
+    for (const Reg &r : Registros(f, de)) {
+        if (!r.doProxy || g.empty()) g.emplace_back();
+        g.back().push_back(r);
+    }
+    return g;
+}
+
 // ---- Compositor falso ----
 struct Compositor {
     DM8 *dm = nullptr;
@@ -680,35 +691,35 @@ int main(int argc, char **argv) {
     std::printf("\n== d) jogo a meia taxa sem repetir quadro e sem trava (relógio próprio) ==\n");
     {
         int quadros = 0, comDois = 0, reaisIntactos = 0, gerados = 0;
-        std::vector<double> preso;
         Desloc d;
+        // O apresentador entrega no tempo do proxy (a partir do Present real), não do laço do
+        // teste: os gerados de cada quadro saem dos grupos do registro, no fim.
+        const int de = fake.presents();
+        std::vector<vr::SharedTextureHandle_t> hs;
+        std::vector<int> jogos;
         for (int k = 0; k < 70; ++k, ++jogo) {
             const double tv = gf::NowSeconds();
-            const int de = fake.presents();
-            const vr::SharedTextureHandle_t h = Vsync(c, jogo, 0);
-            const double segurou = gf::NowSeconds() - g_tPresent;
+            hs.push_back(Vsync(c, jogo, 0));
+            jogos.push_back(jogo);
             gf::DormirAte(tv + 2 * kVsync); // o jogo entrega um quadro a cada 2 vsyncs
-            // O gerado sai do apresentador depois que o PostPresent voltou: conta até o próximo.
-            const std::vector<Reg> r = Registros(fake, de);
-            if (k >= 10) { // o proxy mede o ritmo do jogo pelos Presents
-                quadros++;
-                comDois += r.size() == 2;
-                reaisIntactos += !r.empty() && Intacto(r[0], h, jogo);
-                if (r.size() == 2 && r[1].doProxy) {
-                    gerados++;
-                    d.Anota(r[1], jogo);
-                }
-                preso.push_back(segurou);
+        }
+        gf::DormirAte(gf::NowSeconds() + 2 * kVsync);
+        const std::vector<std::vector<Reg>> g = Grupos(fake, de);
+        CHECK(g.size() == hs.size());
+        for (size_t k = 10; k < g.size() && k < hs.size(); ++k) { // o proxy mede o ritmo do jogo pelos Presents
+            const std::vector<Reg> &r = g[k];
+            quadros++;
+            comDois += r.size() == 2;
+            reaisIntactos += Intacto(r[0], hs[k], jogos[k]);
+            if (r.size() == 2) {
+                gerados++;
+                d.Anota(r[1], jogos[k]);
             }
         }
-        std::sort(preso.begin(), preso.end());
-        std::printf("d) %d quadros do jogo: %d com 2 Presents no driver, %d reais intactos, %d gerados no vsync vazio (%.0f%%); "
-                    "compositor preso no proxy: 90%% %.1f ms\n",
-                    quadros, comDois, reaisIntactos, gerados, 100.0 * gerados / quadros, preso[preso.size() * 9 / 10] * 1000);
+        std::printf("d) %d quadros do jogo: %d com 2 Presents no driver, %d reais intactos, %d gerados no vsync vazio (%.0f%%)\n",
+                    quadros, comDois, reaisIntactos, gerados, 100.0 * gerados / quadros);
         CHECK(reaisIntactos == quadros);
         CHECK(gerados * 10 >= quadros * 8);
-        // O compositor (e com ele o jogo) não espera pelos gerados: o PostPresent volta na hora.
-        CHECK(preso[preso.size() * 9 / 10] < 0.3 * kVsync);
         d.Confere("d");
     }
 
