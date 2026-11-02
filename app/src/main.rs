@@ -265,7 +265,11 @@ mod win {
             return Err(format!("não achei {}", d.dll.display()));
         }
         if core::pode_escrever(&d.dll) {
-            executar(op, &d.dll).map_err(|e| e.to_string())
+            // A DLL abre para escrita, mas a pasta pode não deixar criar o .tmp: aí pede o administrador.
+            match executar(op, &d.dll) {
+                Err(e) if e.kind() == io::ErrorKind::PermissionDenied => elevado(op, &d.dll),
+                r => r.map_err(|e| e.to_string()),
+            }
         } else {
             elevado(op, &d.dll)
         }
