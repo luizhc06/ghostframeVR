@@ -272,7 +272,19 @@ void DirectModeWrapper::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) {
                     e.mHmdPose.m[0][3], e.mHmdPose.m[1][3], e.mHmdPose.m[2][3]);
         }
     }
-    if (primeira) m_quadroComFG = g_opcoes.framegen.load(std::memory_order_relaxed) && !m_desistiu;
+    if (primeira) {
+        // Desistiu (falhas seguidas, GPU ocupada, motor sem iniciar): depois de um tempo
+        // repassando tudo, tenta de novo sozinho. O frame gen não fica parado até religar.
+        if (m_desistiu && m_desistiuEm > 0 && NowSeconds() - m_desistiuEm > kTentarDeNovo) {
+            m_desistiu = false;
+            m_desistiuEm = 0;
+            m_falhasSeguidas = m_semEntrega = 0;
+            if (m_motor.load() == 3) m_motor = 0;
+            g_estatFG.estado = FG_ESPERANDO;
+            GF_LOG("FRAMEGEN tentando de novo depois de %.0f s", kTentarDeNovo);
+        }
+        m_quadroComFG = g_opcoes.framegen.load(std::memory_order_relaxed) && !m_desistiu;
+    }
     if (m_quadroComFG) {
         if (m_nCamadas < kMaxCamadas) {
             std::memcpy(&m_camadas[m_nCamadas++], &perEye, sizeof(Camada));
@@ -289,9 +301,10 @@ void DirectModeWrapper::SubmitLayer(const SubmitLayerPerEye_t (&perEye)[2]) {
 void DirectModeWrapper::Falhou(const char *motivo) {
     g_estatFG.falhas++;
     if (m_falhasSeguidas++ == 0) GF_LOG("FRAMEGEN falhou: %s (repassando o original)", motivo);
-    // Falha que se repete: desiste até o frame gen ser desligado e ligado de novo.
+    // Falha que se repete: para por kTentarDeNovo s (repassando tudo) e tenta de novo sozinho.
     if (m_falhasSeguidas >= 60 && !m_desistiu) {
         m_desistiu = true;
+        m_desistiuEm = NowSeconds();
         g_estatFG.estado = FG_FALHOU;
         GF_LOG("FRAMEGEN desativado depois de %u falhas seguidas: %s", m_falhasSeguidas, motivo);
     }
@@ -312,7 +325,8 @@ bool DirectModeWrapper::Motor() {
         });
         return false;
     case 3:
-        m_desistiu = true; // sem device D3D11 não há o que tentar
+        m_desistiu = true; // sem device D3D11: tenta iniciar de novo daqui a pouco
+        m_desistiuEm = NowSeconds();
         g_estatFG.estado = FG_FALHOU;
         return false;
     default: return false; // iniciando: repassa até ficar pronto
@@ -672,6 +686,7 @@ void DirectModeWrapper::PostPresent(const Throttling_t *t) {
         g_estatFG.falhas++;
         if (++m_semEntrega >= 120 && !m_desistiu) {
             m_desistiu = true;
+            m_desistiuEm = NowSeconds();
             g_estatFG.estado = FG_FALHOU;
             GF_LOG("FRAMEGEN desativado: os frames gerados não ficam prontos a tempo (GPU ocupada?)");
         }

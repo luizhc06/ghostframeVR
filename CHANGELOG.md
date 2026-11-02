@@ -5,6 +5,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 ## [Não lançado]
 
 ### Corrigido
+- O frame gen não fica mais parado de vez: depois de falhas seguidas o proxy repassa tudo por 10 s e tenta de novo sozinho; a proteção do app (trava sem frames entregues) também volta sozinha depois de 30 s. Antes, só desligando e religando.
 - O app não deixava claro que o proxy instalado era de outra versão (no teste real o driver ainda tinha a DLL da 0.2.12, então o frame gen novo nunca rodou). Agora um aviso no topo de todas as abas diz isso e atualiza num clique.
 - **O 2x ligava e desligava sozinho (jogo caía para 30 e voltava para 60).** No teste real com o Pico, a trava do SteamVR chegou, o 2x funcionou (45 reais + 45 gerados por segundo) e logo parou: o compositor do SteamVR segura o syncTexture dele enquanto o PostPresent roda, e o proxy precisava dele para entregar o gerado (1091 falhas "syncTexture ocupado" na sessão). O jogo ficava na metade sem gerados até o app desfazer a trava, e o ciclo recomeçava. Agora os gerados vão com um syncTexture do próprio proxy, sempre livre; o teste ponta a ponta passa a segurar o sync no PostPresent como o SteamVR.
 

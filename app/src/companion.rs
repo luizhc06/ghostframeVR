@@ -79,6 +79,8 @@ struct Sessao {
     sem_entrega: Option<Instant>,
     /// Travou sem entregar frames: não trava de novo até o frame gen ser religado.
     fg_bloqueado: bool,
+    /// Quando bloqueou: depois de 30 s o app tenta de novo sozinho (não espera religar).
+    bloqueado_em: Option<Instant>,
     /// Resumo da última imagem enviada ao HUD: só reenvia quando muda.
     hud_hash: u64,
 }
@@ -185,6 +187,7 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
                         ligado_desde: None,
                         sem_entrega: None,
                         fg_bloqueado: false,
+                        bloqueado_em: None,
                         hud_hash: 0,
                     });
                     painel.lock().unwrap_or_else(|e| e.into_inner()).erro = None;
@@ -248,6 +251,13 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
         } else {
             s.ligado_desde = None;
             s.fg_bloqueado = false;
+        }
+        // Bloqueado por não entregar frames com a trava: 30 s depois, tenta de novo (com a mesma
+        // carência do início para o motor ficar pronto).
+        if s.fg_bloqueado && s.bloqueado_em.is_some_and(|t| agora.duration_since(t) > Duration::from_secs(30)) {
+            s.fg_bloqueado = false;
+            s.bloqueado_em = None;
+            s.ligado_desde = Some(agora);
         }
         // Funcionando = o proxy gerou frames ("pronto"). "esperando" só conta nos primeiros
         // segundos depois de ligar; parado em "esperando" não segura a trava.
@@ -321,7 +331,8 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
         if trava > 0 && nossa.as_ref().is_some_and(|(_, v)| *v > 0) && gerados_agora < 0.5 {
             if agora.duration_since(*s.sem_entrega.get_or_insert(agora)) > Duration::from_secs(6) {
                 s.fg_bloqueado = true;
-                erro = Some("o frame gen não entregou frames com a trava ligada: trava desfeita (veja o log)".into());
+                s.bloqueado_em = Some(agora);
+                erro = Some("o frame gen não entregou frames com a trava ligada: trava desfeita por 30 s (veja o log)".into());
             }
         } else {
             s.sem_entrega = None;
