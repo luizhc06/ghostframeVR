@@ -587,8 +587,10 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
         if (per > 0 && m_travaSteamVR == 0 && agora >= m_relogioPausaAte && m_intervaloJogo > 1.05 * per &&
             m_intervaloPresent > 0.8 * m_intervaloJogo) {
             double c = m_credito + m_intervaloJogo / per - 1.0;
-            c = c < 0 ? 0 : c > teto ? teto : c;
-            m_extrasRelogio = c >= 2 ? 2 : c >= 1 ? 1 : 0;
+            c = c < -1 ? -1 : c > teto ? teto : c;
+            // Arredonda com folga de 0,15 e o crédito pode ficar negativo: com o jogo a 1/3 dos Hz,
+            // a média um pouco abaixo (2,98 vsyncs) alternava 1 e 2 gerados em vez de 2 sempre.
+            m_extrasRelogio = c >= 1.85 ? 2 : c >= 0.85 ? 1 : 0;
             m_credito = c - m_extrasRelogio;
             if (m_extrasRelogio) m_alfaPasso = per / m_intervaloJogo;
         } else {
