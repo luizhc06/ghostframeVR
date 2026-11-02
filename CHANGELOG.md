@@ -2,6 +2,11 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Corrigido
+- **"Atualizar agora" dava "Acesso negado (os error 5)"**, mesmo com a permissão do Windows e o SteamVR fechado. Algum programa ainda estava com a DLL do driver carregada, e o Windows não deixa escrever por cima de uma DLL carregada, nem como administrador. Mas deixa renomear: agora a DLL velha sai do caminho e a nova entra no lugar (vale também para desinstalar). Se a DLL abre para escrita mas a pasta não deixa criar o arquivo novo, o app pede a permissão do Windows em vez de falhar.
+
 ## [0.2.15-alpha] - 2026-11-01
 
 Tudo o que mudou desde o último teste real (relatório da v0.2.14 com o Pico 4 e o VRChat).
