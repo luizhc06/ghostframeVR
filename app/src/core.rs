@@ -480,6 +480,35 @@ fn copiar_pasta(de: &Path, para: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Põe `de` no lugar de `para`. Com a DLL carregada por algum programa (mesmo com o SteamVR
+/// fechado), o Windows nega escrever por cima dela, até como administrador, mas deixa renomeá-la:
+/// a velha sai do caminho como `.old-<hora>` e é apagada quando ninguém mais a usa.
+fn trocar(de: &Path, para: &Path) -> io::Result<()> {
+    let nome = para.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    if let Some(pasta) = para.parent() {
+        for e in fs::read_dir(pasta).into_iter().flatten().flatten() {
+            if e.file_name().to_string_lossy().starts_with(&format!("{nome}.old-")) {
+                let _ = fs::remove_file(e.path());
+            }
+        }
+    }
+    if fs::rename(de, para).is_ok() {
+        return Ok(());
+    }
+    let velha = para.with_file_name(format!("{nome}.old-{}", agora()));
+    let fora = |e: io::Error| {
+        let msg = format!("não consegui trocar {}: {e}. Outro programa está com ela aberta", para.display());
+        io::Error::new(e.kind(), format!("{msg}: feche o programa do headset (PICO Connect, ALVR) e tente de novo"))
+    };
+    fs::rename(para, &velha).map_err(fora)?;
+    if let Err(e) = fs::rename(de, para) {
+        let _ = fs::rename(&velha, para);
+        return Err(fora(e));
+    }
+    let _ = fs::remove_file(&velha);
+    Ok(())
+}
+
 pub fn instalar(dll: &Path, proxy: &[u8], backups: &Path) -> io::Result<String> {
     if proxy.is_empty() {
         return Err(erro("este build do app não tem a DLL do proxy embutida (use o .exe da release)"));
@@ -494,7 +523,7 @@ pub fn instalar(dll: &Path, proxy: &[u8], backups: &Path) -> io::Result<String> 
             // (ela pareceria "restaurada pelo Pico" e a próxima instalação a trataria como original).
             let tmp = dll.with_extension("dll.tmp");
             fs::write(&tmp, proxy)?;
-            if let Err(e) = fs::rename(&tmp, dll) {
+            if let Err(e) = trocar(&tmp, dll) {
                 let _ = fs::remove_file(&tmp);
                 return Err(e);
             }
@@ -519,7 +548,7 @@ pub fn desinstalar(dll: &Path) -> io::Result<String> {
     let real = caminho_real(dll);
     match estado(dll) {
         Estado::Instalado => {
-            fs::rename(&real, dll)?;
+            trocar(&real, dll)?;
             Ok("proxy removido, DLL original restaurada".into())
         }
         Estado::Sobrescrito => {
@@ -937,6 +966,15 @@ mod testes {
         assert_eq!(estado(&d.dll), Estado::Instalado);
         assert_eq!(fs::read(caminho_real(&d.dll)).unwrap(), b"ORIGINAL");
         assert_eq!(fs::read_dir(raiz.join("bk")).unwrap().count(), 1);
+
+        // Atualizar o proxy troca só a DLL e limpa a velha que ficou de uma troca com ela em uso.
+        let pasta = d.dll.parent().unwrap().to_path_buf();
+        fs::write(pasta.join("driver_pico.dll.old-1"), b"VELHA").unwrap();
+        instalar(&d.dll, b"xx ghostframe proxy iniciado v2", &raiz.join("bk")).unwrap();
+        assert_eq!(fs::read(&d.dll).unwrap(), b"xx ghostframe proxy iniciado v2");
+        let mut nomes: Vec<_> = fs::read_dir(&pasta).unwrap().map(|e| e.unwrap().file_name()).collect();
+        nomes.sort();
+        assert_eq!(nomes, ["driver_pico.dll", "driver_pico_real.dll"]);
 
         // Atualização do Pico Connect devolve uma DLL nova: reinstalar troca a _real.
         fs::write(&d.dll, b"ORIGINAL2").unwrap();
