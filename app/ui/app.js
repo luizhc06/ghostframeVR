@@ -139,7 +139,7 @@ function preencherConfig() {
   $("#fg-modo-linha").hidden = $("#fg-vivo").hidden = modo === "off" || !framegenDisponivel;
   // Sem frame gen na DLL: a recomendação continua visível, mas não dá para ligar.
   $("#fg-auto").hidden = modo !== "auto" && framegenDisponivel;
-  $("#fg-manual").hidden = modo !== "manual" || !framegenDisponivel;
+  $("#fg-manual").hidden = $("#fg-alem").hidden = modo !== "manual" || !framegenDisponivel;
   $(".previa").classList.toggle("off", config["hud.ativo"] !== "1");
 }
 

@@ -18,6 +18,7 @@ pub const PADROES: &[(&str, &str)] = &[
     ("framegen.ativo", "0"),
     ("framegen.modo", "auto"),
     ("framegen.multiplicador", "2"),
+    ("framegen.alem_hz", "0"),
     ("hud.ativo", "0"),
     ("hud.ancora", "pe"),
     ("hud.olhar", "1"),

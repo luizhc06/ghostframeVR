@@ -835,6 +835,34 @@ int main(int argc, char **argv) {
         std::printf("h) %d quadros do jogo: %d com 2 gerados (%.0f%%)\n", quadros, doisGerados, 100.0 * doisGerados / quadros);
         CHECK(doisGerados * 10 >= quadros * 7);
     }
+    // ---- i) Manual 2x passando dos Hz: com o jogo nos Hz do headset, um gerado no meio de cada
+    // quadro (o dobro de Presents que vsyncs), sem segurar o compositor. ----
+    std::printf("\n== i) manual 2x passando dos Hz ==\n");
+    EscreveIni(ini, true, "modo = manual\nmultiplicador = 2\nalem_hz = 1\n");
+    Sleep(1500);
+    {
+        const int de = fake.presents();
+        std::vector<double> esperou;
+        for (int k = 0; k < 60; ++k, ++jogo) {
+            const double tv = gf::NowSeconds();
+            Vsync(c, jogo, 0);
+            if (k >= 10) esperou.push_back(g_dPresent);
+            gf::DormirAte(tv + kVsync); // o jogo nos Hz do headset
+        }
+        gf::DormirAte(gf::NowSeconds() + kVsync);
+        const std::vector<std::vector<Reg>> g = Grupos(fake, de);
+        int quadros = 0, gerados = 0;
+        for (size_t k = 10; k < g.size(); ++k) {
+            quadros++;
+            gerados += g[k].size() == 2;
+        }
+        std::sort(esperou.begin(), esperou.end());
+        std::printf("i) %d quadros do jogo nos Hz: %d com um gerado no meio (%.0f%%); Present do compositor no proxy: "
+                    "90%% %.1f ms\n",
+                    quadros, gerados, 100.0 * gerados / quadros, esperou[esperou.size() * 9 / 10] * 1000);
+        CHECK(gerados * 10 >= quadros * 7);
+        CHECK(esperou[esperou.size() * 9 / 10] < 0.3 * kVsync);
+    }
 
     EscreveIni(ini, true);
     Sleep(1500);

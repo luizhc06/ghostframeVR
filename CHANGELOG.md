@@ -2,6 +2,15 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 
+## [0.2.18-alpha] - 2026-11-02
+
+### Adicionado
+- **Passar dos Hz** (Manual, desligado por padrão): o 2x entrega sempre 1 gerado por quadro real e o 3x sempre 2, espaçados no intervalo do jogo, mesmo com o jogo perto ou acima dos Hz do headset. O headset só mostra os Hz dele: o que passar o driver descarta ou entrega atrasado. A guarda continua: o gerado só sai se couber antes do próximo quadro real.
+
+### Corrigido
+- **O app travava o jogo pelo SteamVR.** No Manual ele gravava a trava por jogo do SteamVR na metade (ou no terço), e no Auto decidia sozinho quando travar: foi por isso que o jogo do teste real ficou em 45 mesmo no Auto. Agora o app não trava mais o jogo e desfaz a trava que versões antigas dele gravaram (a que você mesmo pôs no SteamVR fica).
+- O fps do headset no painel soma os gerados que o proxy entrega sozinho (antes só somava com a trava ligada).
+
 ## [0.2.17-alpha] - 2026-11-01
 
 ### Corrigido
