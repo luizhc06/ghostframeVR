@@ -145,7 +145,7 @@ pub fn ler_autoteste(saida: &str, codigo: Option<i32>) -> Value {
         "pctTrava": pct(" reais intactos, "),
         // d): jogo abaixo dos Hz sem repetir e sem trava (o caso do Pico Connect).
         "pctRelogio": pct("gerados no vsync vazio"),
-        // g): manual 2x, o proxy trava o jogo na metade e gera no vsync do meio.
+        // g): manual 2x, um gerado por quadro real, sem travar o jogo.
         "pctManual": linhas.iter().filter(|l| l.starts_with("g) ")).find_map(|l| depois(l, " com 2 Presents, ")?.split('(').nth(1)?.split('%').next()?.trim().parse::<f64>().ok()),
     })
 }
