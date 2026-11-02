@@ -2,7 +2,7 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.2.19-alpha] - 2026-11-02
 
 ### Corrigido
 - **O frame gen "gerava 2 quadros e morria" com o jogo pesado na GPU.** No teste real (RTX 5070, imagem do VRChat a 3196x3196 por olho, jogo entre 46 e 60 fps), o quadro gerado custava 0,9 ms, mas ficava na fila da GPU atrás do quadro do jogo e perdia o vsync. O proxy contava isso como falha e, depois de 120, desistia por 10 s, voltava e desistia de novo. Agora:
