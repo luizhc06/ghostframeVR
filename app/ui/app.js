@@ -196,6 +196,8 @@ $$("#perfis button").forEach((b) => (b.onclick = async () => {
   }
 }));
 
+$("#btn-proxy-velho").onclick = (ev) => chamar("instalar", {}, ev.currentTarget);
+
 // ---------- autoteste: o teste ponta a ponta da CI, na GPU deste PC ----------
 $("#btn-autoteste").onclick = async (ev) => {
   const b = ev.currentTarget, caixa = $("#fg-teste");
@@ -491,6 +493,15 @@ function render(e) {
 
   // ----- painel -----
   const aberto = e.processos.steamvr;
+  // Proxy diferente do que vem no app: o frame gen desta versão não roda até atualizar.
+  const velho = !!e.dllEmbutida && !!e.alvo?.desatualizado;
+  $("#proxy-velho").hidden = !velho;
+  if (velho) {
+    texto($("#proxy-velho-txt"), aberto
+      ? "Feche o SteamVR e clique em Atualizar (o Windows pede permissão)."
+      : "O frame gen desta versão não está rodando no headset. Atualizar pede permissão do Windows.");
+    $("#btn-proxy-velho").disabled = aberto;
+  }
   $("#btn-autoteste").disabled = !e.autoteste;
   $("#btn-autoteste").title = e.autoteste ? "" : "Este build não tem o autoteste (use o .exe da release)";
   // Abriu um app mais novo (ou o Pico restaurou a DLL dele): atualiza o proxy sozinho,
