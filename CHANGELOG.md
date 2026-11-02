@@ -2,7 +2,7 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.2.18-alpha] - 2026-11-02
 
 ### Adicionado
 - **Passar dos Hz** (Manual, desligado por padrão): o 2x entrega sempre 1 gerado por quadro real e o 3x sempre 2, espaçados no intervalo do jogo, mesmo com o jogo perto ou acima dos Hz do headset. O headset só mostra os Hz dele: o que passar o driver descarta ou entrega atrasado. A guarda continua: o gerado só sai se couber antes do próximo quadro real.
