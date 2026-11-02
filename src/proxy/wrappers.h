@@ -131,6 +131,7 @@ private:
     double m_alfaPasso = 0.5;
     double m_passoPendente = 0;  // alfa-passo com que o gerado pendente foi feito
     uint32_t m_extrasRelogio = 0;
+    double m_passoRelogio = 0;   // tempo entre os gerados do relógio (o vsync, ou I/mult acima dos Hz)
     // Crédito de vsyncs vazios por quadro real (I/período - 1): a 60 fps em 90 Hz dá um
     // gerado a cada 2 reais, a 45 fps um por real; o total fica nos Hz do headset.
     double m_credito = 0;

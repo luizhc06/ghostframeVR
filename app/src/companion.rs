@@ -280,8 +280,9 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
             _ => None,
         };
 
-        // Trava do jogo para o frame gen: Auto decide; Manual segue o multiplicador escolhido.
-        // Sem frame gen funcionando, só desfaz a trava que o próprio app pôs (a do usuário fica).
+        // Trava do jogo: o app não trava mais o jogo (com a trava o jogo perdia fps: 79 virava 44 no
+        // teste real). O proxy completa os vsyncs vazios sozinho. Só desfaz a trava que versões
+        // antigas do app puseram (a do usuário fica).
         let gravar_trava = |j: &str, t: i64| {
             let v = vr::Valor::Int(t as i32);
             s.vr.gravar(j, "framesToThrottle", v).and_then(|_| s.vr.gravar(j, "additionalFramesToPredict", v))
@@ -298,15 +299,7 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
             }
         }
         let manual = texto(&cfg, "framegen.multiplicador").parse::<i64>().unwrap_or(2).clamp(2, 3) - 1;
-        let alvo_trava = if jogo.is_empty() {
-            None // nenhum jogo aberto: nada a travar agora
-        } else if fg_ok {
-            if texto(&cfg, "framegen.modo") == "auto" { decisao.map(|d| i64::from(d.trava)) } else { Some(manual) }
-        } else if nossa.is_some() {
-            Some(0)
-        } else {
-            None
-        };
+        let alvo_trava = (!jogo.is_empty() && nossa.is_some()).then_some(0);
         if let Some(t) = alvo_trava.filter(|t| *t != trava) {
             // Lembra antes de gravar: se a 2ª escrita falhar, a trava ainda é nossa.
             let antes = nossa.clone();
@@ -338,8 +331,8 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
             s.sem_entrega = None;
         }
 
-        // fps que chega no headset: os Present do compositor mais os gerados que o proxy
-        // entrega sozinho com a trava (sem trava, o gerado ocupa o lugar de um repetido).
+        // fps que chega no headset: os Present do compositor mais os gerados que o proxy entrega
+        // sozinho (o gerado que só ocupa o lugar de um repetido não soma).
         let st = &log["stats"];
         let present = st
             .get("DirectMode::Present")
@@ -347,7 +340,7 @@ fn laco(c: Caminhos, painel: Arc<Mutex<Painel>>, rx: mpsc::Receiver<Gravar>, ao_
             .and_then(|s| s.as_array()?.last()?.get(1)?.as_f64())
             .map(|x| x as f32);
         let gerados = fg_num("gerados").filter(|_| ligado);
-        let extras = if fg_num("trava").unwrap_or(0.0) > 0.0 { gerados.unwrap_or(0.0) } else { 0.0 };
+        let extras = (gerados.unwrap_or(0.0) - fg_num("repetidos").unwrap_or(0.0)).max(0.0);
         let fps_headset = present.map(|p| p + extras);
         if let Some(x) = fps_headset.or(timing.as_ref().map(|t| t.fps_jogo)) {
             if historico.len() == 60 {

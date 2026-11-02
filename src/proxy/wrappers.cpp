@@ -596,6 +596,17 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
         } else {
             m_credito = 0;
         }
+        m_passoRelogio = per;
+        // Manual passando dos Hz (pedido do usuário): sempre mult-1 gerados por quadro, espaçados
+        // no intervalo do jogo, mesmo com o jogo perto ou acima dos Hz. O headset só mostra os Hz
+        // dele; o resto o driver descarta ou atrasa. A guarda do apresentador continua valendo.
+        if (mult >= 2 && g_opcoes.alemHz.load(std::memory_order_relaxed) && m_travaSteamVR == 0 &&
+            agora >= m_relogioPausaAte && m_intervaloJogo > 0 && m_intervaloPresent > 0.8 * m_intervaloJogo) {
+            m_extrasRelogio = uint32_t(mult - 1);
+            m_alfaPasso = 1.0 / mult;
+            m_passoRelogio = m_intervaloJogo / mult;
+            m_credito = 0;
+        }
         if (Motor()) {
             for (int olho = 0; olho < 2; ++olho) {
                 ProjecaoOlho p = Projecao(olho);
@@ -635,7 +646,7 @@ void DirectModeWrapper::Present(vr::SharedTextureHandle_t syncTexture) {
     // que fazia 79 caía para 44 com o Manual 2x.
     if (novo && m_extrasRelogio && m_pendente && !m_desistiu) {
         m_tarefaT0 = m_tPresent;
-        m_tarefaPer = PeriodoRelogio();
+        m_tarefaPer = m_passoRelogio;
         m_tarefaExtras = m_extrasRelogio;
         m_tarefaProx = m_tPresent + (m_ultimoIntervalo > 0 && m_ultimoIntervalo < m_intervaloJogo ? m_ultimoIntervalo : m_intervaloJogo);
         m_tarefaQuadro = m_quadro.load();

@@ -79,6 +79,10 @@ void LerOpcoes() {
         if (mult) GF_LOG("FRAMEGEN manual %dx: até %d gerado(s) por quadro real, sem travar o jogo", mult, mult - 1);
         else GF_LOG("FRAMEGEN auto: completa até os Hz do headset quando o jogo fica abaixo");
     }
+    const bool alem = mult && IniLigado(texto.c_str(), "framegen", "alem_hz");
+    if (alem != g_opcoes.alemHz.exchange(alem))
+        GF_LOG("FRAMEGEN %s", alem ? "passando dos Hz: o headset só mostra os Hz dele, o resto o driver descarta ou atrasa"
+                                   : "até os Hz do headset");
 }
 
 void Laco() {

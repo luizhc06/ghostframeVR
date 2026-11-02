@@ -11,9 +11,11 @@ namespace gf {
 
 struct Opcoes {
     std::atomic<bool> framegen{false}; // [framegen] ativo=1
-    // [framegen] modo=manual + multiplicador=2|3: o proxy trava o jogo nessa fração dos Hz e
-    // gera o resto (como a trava do SteamVR, que o Pico Connect não recebe). 0 = Auto.
+    // [framegen] modo=manual + multiplicador=2|3: no máximo 1 ou 2 gerados por quadro real. 0 = Auto.
     std::atomic<int> multiplicador{0};
+    // [framegen] alem_hz=1 (só no Manual): sempre multiplicador-1 gerados por quadro, mesmo acima
+    // dos Hz do headset.
+    std::atomic<bool> alemHz{false};
 };
 extern Opcoes g_opcoes;
 
