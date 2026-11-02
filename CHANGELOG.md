@@ -2,7 +2,7 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versões seguem [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.2.15-alpha] - 2026-11-01
 
 Tudo o que mudou desde o último teste real (relatório da v0.2.14 com o Pico 4 e o VRChat).
 
